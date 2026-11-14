@@ -14,12 +14,14 @@ import OverviewTab from "./components/OverviewTab.jsx";
 import HeatmapTab from "./components/HeatmapTab.jsx";
 import AnomaliesTab from "./components/AnomaliesTab.jsx";
 import ComparisonTab from "./components/ComparisonTab.jsx";
+import ProbeTab from "./components/ProbeTab.jsx";
 
 const TABS = [
   { id: "overview", label: "Vue d'ensemble" },
   { id: "heatmap", label: "Activité neuronale" },
   { id: "anomalies", label: "Anomalies & points bloquants" },
   { id: "compare", label: "Comparaison de modèles" },
+  { id: "probe", label: "Neurones & poids" },
 ];
 
 export default function App() {
@@ -148,7 +150,7 @@ export default function App() {
         </aside>
 
         <main className="content">
-          {!activeDataset && (
+          {!activeDataset && tab !== "probe" && (
             <div className="empty-state">
               <h2>Aucun dataset sélectionné</h2>
               <p>
@@ -159,7 +161,7 @@ export default function App() {
             </div>
           )}
 
-          {activeDataset && (
+          {(activeDataset || tab === "probe") && (
             <>
               <div className="toolbar">
                 <div className="tabs">
@@ -173,16 +175,18 @@ export default function App() {
                     </button>
                   ))}
                 </div>
-                <label className="model-select">
-                  Modèle :
-                  <select value={model || ""} onChange={(e) => changeModel(e.target.value)}>
-                    {activeDataset.models.map((m) => (
-                      <option key={m} value={m}>
-                        {m}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                {activeDataset && (
+                  <label className="model-select">
+                    Modèle :
+                    <select value={model || ""} onChange={(e) => changeModel(e.target.value)}>
+                      {activeDataset.models.map((m) => (
+                        <option key={m} value={m}>
+                          {m}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
               </div>
 
               {loading && <div className="loading">Analyse en cours…</div>}
@@ -201,6 +205,7 @@ export default function App() {
                       fetchComparison={fetchComparison}
                     />
                   )}
+                  {tab === "probe" && <ProbeTab />}
                 </>
               )}
             </>

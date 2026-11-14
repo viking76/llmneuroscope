@@ -19,17 +19,38 @@ avec un dashboard graphique complet.
   longueurs anormales, pics de latence — avec sévérité et z-scores.
 - **Comparaison de modèles** : tableau de deltas entre deux versions, verdict
   automatique (stable / vigilance / régression / amélioration).
+- **Sonde neuronale** (`/api/probe`) : pour un modèle open-weights exécuté
+  localement — test avec des textes, activité neuronale par couche (neurones
+  morts, top neurones), inspection des poids (stats, histogramme), modification
+  réversible de neurones (scale / zero / restore) et génération instrumentée.
+  Voir [docs/agent-api.md](docs/agent-api.md) pour piloter la sonde depuis une
+  autre IA.
 - **Dashboard React** : cartes de métriques, courbes, heatmap position × run,
-  journal d'anomalies filtrable, comparaison côte à côte.
+  journal d'anomalies filtrable, comparaison côte à côte, onglet Neurones & poids.
 
 ## Structure
 
 ```
-backend/          API FastAPI (ingestion, métriques, anomalies, comparaison)
+backend/          API FastAPI (ingestion, métriques, anomalies, comparaison, sonde neuronale)
 frontend/         Dashboard React + Vite + Recharts
-scripts/          Générateur de dataset d'exemple
+scripts/          Générateur de dataset d'exemple + aperçus de l'interface
 data/             Datasets d'exemple générés
+docs/             Guide de pilotage par agent (agent-api.md), aperçus
 ```
+
+### Sonde neuronale (poids et activations)
+
+Pour lire et modifier les poids, un modèle open-weights local est requis :
+
+```bash
+pip install -r backend/requirements-probe.txt   # torch + transformers
+```
+
+Sans torch, la sonde tourne en mode `mock` (simulation déterministe) pour tester
+l'intégration. Endpoints principaux : `POST /api/probe/load`,
+`POST /api/probe/analyze-texts`, `GET /api/probe/weights/{layer}`,
+`POST /api/probe/weights/modify` (scale / zero / restore), `POST /api/probe/generate`.
+Détails et session type : [docs/agent-api.md](docs/agent-api.md).
 
 ## Démarrage rapide
 
