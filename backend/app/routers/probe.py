@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from app.services.probe import ProbeError, get_probe
+from app.services.probe import ProbeError, get_probe, resolve_export_path
 
 router = APIRouter(prefix="/api/probe", tags=["probe"])
 
@@ -27,6 +27,14 @@ class ModifyWeightRequest(BaseModel):
 class GenerateRequest(BaseModel):
     prompt: str
     max_new_tokens: int = Field(default=16, ge=1, le=256)
+
+
+class ExportRequest(BaseModel):
+    filename: str | None = None
+
+
+class ApplyRequest(BaseModel):
+    filename: str
 
 
 @router.get("/status")
@@ -89,5 +97,27 @@ async def modify_weights(request: ModifyWeightRequest):
 async def generate(request: GenerateRequest):
     try:
         return get_probe().generate(request.prompt, request.max_new_tokens)
+    except ProbeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/weights/export")
+async def export_weights(request: ExportRequest):
+    try:
+        path = resolve_export_path(request.filename)
+        result = get_probe().export_weights(path)
+        result["path"] = str(path.relative_to(path.parents[2]))
+        return result
+    except ProbeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/weights/apply")
+async def apply_weights(request: ApplyRequest):
+    try:
+        path = resolve_export_path(request.filename)
+        if not path.exists():
+            raise ProbeError(f"Fichier introuvable: {path}")
+        return get_probe().apply_weights(path)
     except ProbeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

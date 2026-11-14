@@ -41,6 +41,8 @@ export default function ProbeTab() {
   const [maxTokens, setMaxTokens] = useState(12);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [exportResult, setExportResult] = useState(null);
+  const [applyFilename, setApplyFilename] = useState("");
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -103,6 +105,29 @@ export default function ProbeTab() {
         }),
       });
       setWeightStats(await probeRequest(`/weights/${selectedLayer}`));
+      await refreshStatus();
+    });
+
+  const exportEdits = () =>
+    run(async () => {
+      const result = await probeRequest("/weights/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      setExportResult(result);
+      setApplyFilename(result.path.split("/").pop());
+      await refreshStatus();
+    });
+
+  const applyEdits = () =>
+    run(async () => {
+      await probeRequest("/weights/apply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ filename: applyFilename }),
+      });
+      if (selectedLayer) setWeightStats(await probeRequest(`/weights/${selectedLayer}`));
       await refreshStatus();
     });
 
@@ -261,6 +286,43 @@ export default function ProbeTab() {
                     Restaurer l'original
                   </button>
                 </div>
+                <div className="compare-selects" style={{ marginTop: 8 }}>
+                  <button
+                    className="btn small"
+                    onClick={exportEdits}
+                    disabled={busy || !status.snapshot_available}
+                  >
+                    Exporter (safetensors)
+                  </button>
+                  <input
+                    value={applyFilename}
+                    onChange={(e) => setApplyFilename(e.target.value)}
+                    placeholder="fichier .safetensors"
+                    style={{ width: 200 }}
+                  />
+                  <button
+                    className="btn small"
+                    onClick={applyEdits}
+                    disabled={busy || !applyFilename}
+                  >
+                    Appliquer
+                  </button>
+                </div>
+                {exportResult && (
+                  <p className="muted small">
+                    Exporté : <code>{exportResult.path}</code> ({exportResult.layers.join(", ")})
+                  </p>
+                )}
+                {status.edit_log?.length > 0 && (
+                  <details style={{ marginTop: 8 }}>
+                    <summary className="muted small">
+                      Journal des modifications ({status.n_edits})
+                    </summary>
+                    <pre className="edit-log">
+                      {status.edit_log.map((entry) => JSON.stringify(entry)).join("\n")}
+                    </pre>
+                  </details>
+                )}
               </div>
             )}
           </div>

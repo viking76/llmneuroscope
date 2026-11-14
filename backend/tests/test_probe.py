@@ -15,6 +15,7 @@ def client():
 
     from app.main import app
 
+    reset_probe()
     return TestClient(app)
 
 
@@ -138,3 +139,78 @@ def test_api_modify_requires_neuron(client):
         json={"layer": "layer_0.mlp", "action": "scale", "factor": 2.0},
     )
     assert response.status_code == 400
+
+
+def test_export_apply_roundtrip(tmp_path):
+    probe = MockBackend()
+    layer = "layer_0.mlp"
+    original = probe.layers[layer].copy()
+    probe.modify(layer, 1, "scale", 3.0)
+    modified = probe.layers[layer].copy()
+
+    export_path = tmp_path / "edit.safetensors"
+    result = probe.export_weights(export_path)
+    assert export_path.exists()
+    assert result["layers"] == [layer]
+
+    probe.modify(layer, None, "restore", None)
+    assert probe.layers[layer] == pytest.approx(original)
+
+    applied = probe.apply_weights(export_path)
+    assert applied["applied"] == [layer]
+    assert probe.layers[layer] == pytest.approx(modified)
+
+
+def test_export_requires_active_modifications(tmp_path):
+    probe = MockBackend()
+    with pytest.raises(ProbeError):
+        probe.export_weights(tmp_path / "nothing.safetensors")
+
+
+def test_apply_skips_unknown_layers(tmp_path):
+    from safetensors.numpy import save_file
+
+    import numpy as np
+
+    probe = MockBackend()
+    foreign = tmp_path / "foreign.safetensors"
+    save_file({"inconnue.mlp": np.zeros((4, 4), dtype=np.float32)}, str(foreign))
+    result = probe.apply_weights(foreign)
+    assert result["applied"] == []
+    assert result["skipped"] == ["inconnue.mlp"]
+
+
+def test_api_export_and_apply(client, tmp_path):
+    from app.services.probe import EXPORT_DIR
+
+    client.post(
+        "/api/probe/weights/modify",
+        json={"layer": "layer_3.mlp", "neuron": 0, "action": "scale", "factor": 1.5},
+    )
+    export = client.post(
+        "/api/probe/weights/export", json={"filename": "test-edit.safetensors"}
+    )
+    assert export.status_code == 200
+    assert (EXPORT_DIR / "test-edit.safetensors").exists()
+
+    client.post(
+        "/api/probe/weights/modify", json={"layer": "layer_3.mlp", "action": "restore"}
+    )
+    apply_response = client.post(
+        "/api/probe/weights/apply", json={"filename": "test-edit.safetensors"}
+    )
+    assert apply_response.status_code == 200
+    assert apply_response.json()["applied"] == ["layer_3.mlp"]
+
+    traversal = client.post(
+        "/api/probe/weights/export", json={"filename": "../evil.safetensors"}
+    )
+    assert traversal.status_code == 400
+
+    (EXPORT_DIR / "test-edit.safetensors").unlink()
+
+
+def test_status_includes_edit_log(client):
+    status = client.get("/api/probe/status").json()
+    assert "n_edits" in status
+    assert "edit_log" in status
