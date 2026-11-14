@@ -180,6 +180,8 @@ class TorchBackend:
         resolved = device if device != "auto" else ("cuda" if torch.cuda.is_available() else "cpu")
         if self.model is None or self.model_name != model_name:
             self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+            if self.tokenizer.pad_token is None:
+                self.tokenizer.pad_token = self.tokenizer.eos_token
             self.model = AutoModelForCausalLM.from_pretrained(
                 model_name, torch_dtype=torch.float32
             ).to(resolved)
