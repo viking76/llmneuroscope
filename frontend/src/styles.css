@@ -514,6 +514,104 @@ select {
   gap: 8px;
 }
 
+.layer-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.layer-chip {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  cursor: pointer;
+  font-family: monospace;
+}
+
+.layer-chip.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.histogram {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 80px;
+  margin: 12px 0;
+}
+
+.histogram-bar {
+  flex: 1;
+  background: var(--accent);
+  border-radius: 2px 2px 0 0;
+  opacity: 0.85;
+}
+
+.token-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.token-chip {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-family: monospace;
+}
+
+.token-chip small {
+  font-size: 9px;
+  opacity: 0.7;
+}
+
+.token-chip.good {
+  background: rgba(79, 207, 139, 0.15);
+  color: var(--good);
+}
+
+.token-chip.warn {
+  background: rgba(255, 184, 79, 0.15);
+  color: var(--warn);
+}
+
+.token-chip.bad {
+  background: rgba(255, 107, 107, 0.15);
+  color: var(--danger);
+}
+
+.text-danger {
+  color: var(--danger);
+}
+
+input {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 7px 10px;
+  font-size: 13px;
+}
+
+textarea {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 8px 10px;
+  font-size: 13px;
+  resize: vertical;
+}
+
 @media (max-width: 900px) {
   .layout {
     grid-template-columns: 1fr;

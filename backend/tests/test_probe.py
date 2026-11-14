@@ -1,0 +1,140 @@
+import os
+
+os.environ["LLM_NEUROSCOPE_BACKEND"] = "mock"
+
+import pytest
+
+from app.services.probe import ProbeError, MockBackend, reset_probe
+
+reset_probe()
+
+
+@pytest.fixture()
+def client():
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    return TestClient(app)
+
+
+def test_mock_backend_status():
+    probe = MockBackend()
+    status = probe.status()
+    assert status["loaded"] is True
+    assert status["backend"] == "mock"
+    assert status["n_layers"] == 4
+
+
+def test_mock_activation_stats():
+    probe = MockBackend()
+    result = probe.activation_stats(["bonjour le monde", "salut la famille"])
+    assert result["n_texts"] == 2
+    assert len(result["layers"]) == 4
+    for layer in result["layers"]:
+        assert 0.0 <= layer["dead_neuron_ratio"] <= 1.0
+        assert len(layer["top_neurons"]) == 5
+
+
+def test_mock_deterministic_activations():
+    probe = MockBackend()
+    first = probe.activation_stats(["texte fixe"])
+    second = probe.activation_stats(["texte fixe"])
+    assert first == second
+
+
+def test_mock_weight_stats():
+    probe = MockBackend()
+    stats = probe.weight_stats("layer_0.mlp")
+    assert stats["shape"] == [16, 16]
+    assert len(stats["histogram"]["counts"]) == 16
+    assert len(stats["preview"]) == 8
+    assert stats["mean"] == pytest.approx(0.0, abs=0.05)
+
+
+def test_mock_modify_and_restore():
+    probe = MockBackend()
+    layer = "layer_1.mlp"
+    original = probe.layers[layer].copy()
+    result = probe.modify(layer, 3, "scale", 2.0)
+    assert result["action"] == "scale"
+    assert result["after"]["norm"] > result["before"]["norm"]
+    assert probe.modified is True
+    restored = probe.modify(layer, None, "restore", None)
+    assert restored["action"] == "restore"
+    assert layer in restored["restored_layers"]
+    assert probe.modified is False
+    assert probe.layers[layer] == pytest.approx(original)
+
+
+def test_mock_zero_neuron():
+    probe = MockBackend()
+    probe.modify("layer_2.mlp", 0, "zero", None)
+    assert probe.layers["layer_2.mlp"][0].tolist() == [0.0] * 16
+    probe.modify("layer_2.mlp", None, "restore", None)
+
+
+def test_mock_generate_deterministic():
+    probe = MockBackend()
+    first = probe.generate("Test prompt", 8)
+    second = probe.generate("Test prompt", 8)
+    assert first == second
+    assert len(first["tokens"]) == 8
+    assert len(first["logprobs"]) == 8
+    assert first["perplexity"] >= 1.0
+
+
+def test_unknown_layer_raises():
+    probe = MockBackend()
+    with pytest.raises(ProbeError):
+        probe.weight_stats("inexistant")
+
+
+def test_api_status(client):
+    response = client.get("/api/probe/status")
+    assert response.status_code == 200
+    assert response.json()["backend"] == "mock"
+
+
+def test_api_full_workflow(client):
+    load = client.post("/api/probe/load", json={"model_name": "mock", "device": "cpu"})
+    assert load.status_code == 200
+
+    analysis = client.post(
+        "/api/probe/analyze-texts", json={"texts": ["premier texte", "second texte"]}
+    )
+    assert analysis.status_code == 200
+    assert len(analysis.json()["layers"]) == 4
+
+    layers = client.get("/api/probe/layers")
+    assert layers.status_code == 200
+    assert len(layers.json()["layers"]) == 4
+
+    weights = client.get("/api/probe/weights/layer_0.mlp")
+    assert weights.status_code == 200
+
+    modify = client.post(
+        "/api/probe/weights/modify",
+        json={"layer": "layer_0.mlp", "neuron": 2, "action": "scale", "factor": 0.5},
+    )
+    assert modify.status_code == 200
+    assert modify.json()["after"]["norm"] < modify.json()["before"]["norm"]
+
+    restore = client.post(
+        "/api/probe/weights/modify", json={"layer": "layer_0.mlp", "action": "restore"}
+    )
+    assert restore.status_code == 200
+
+    generation = client.post(
+        "/api/probe/generate", json={"prompt": "Bonjour", "max_new_tokens": 5}
+    )
+    assert generation.status_code == 200
+    assert len(generation.json()["tokens"]) == 5
+
+
+def test_api_modify_requires_neuron(client):
+    response = client.post(
+        "/api/probe/weights/modify",
+        json={"layer": "layer_0.mlp", "action": "scale", "factor": 2.0},
+    )
+    assert response.status_code == 400
