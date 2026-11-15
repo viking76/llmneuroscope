@@ -344,17 +344,36 @@ class TorchBackend:
         self.nnsight_n_layers = 0
         self.nnsight_layers_path = None
 
+    @staticmethod
+    def _split_gguf(model_name: str) -> tuple[str, str] | None:
+        if not model_name.lower().endswith(".gguf"):
+            return None
+        if os.path.exists(model_name):
+            path = Path(model_name).resolve()
+            return str(path.parent), path.name
+        if model_name.startswith(("/", "./", "../", "~")):
+            raise ProbeError(f"Fichier GGUF introuvable: {model_name}")
+        repo_id, _, filename = model_name.rpartition("/")
+        if repo_id and filename:
+            return repo_id, filename
+        raise ProbeError(f"Fichier GGUF introuvable: {model_name}")
+
     def load(self, model_name: str, device: str) -> dict:
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
         torch = self.torch
         resolved = device if device != "auto" else ("cuda" if torch.cuda.is_available() else "cpu")
         if self.model is None or self.model_name != model_name:
-            self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+            gguf = self._split_gguf(model_name)
+            if gguf:
+                source, extra_kwargs = gguf[0], {"gguf_file": gguf[1]}
+            else:
+                source, extra_kwargs = model_name, {}
+            self.tokenizer = AutoTokenizer.from_pretrained(source, **extra_kwargs)
             if self.tokenizer.pad_token is None:
                 self.tokenizer.pad_token = self.tokenizer.eos_token
             self.model = AutoModelForCausalLM.from_pretrained(
-                model_name, torch_dtype=torch.float32
+                source, torch_dtype=torch.float32, **extra_kwargs
             ).to(resolved)
         self.model.eval()
         self.model_name = model_name
@@ -540,6 +559,11 @@ class TorchBackend:
 
     def _get_bridge(self):
         self._require_loaded()
+        if self._split_gguf(self.model_name):
+            raise ProbeError(
+                "Analyse d'attention non supportée pour un modèle GGUF: "
+                "le bridge TransformerLens ne peut pas recharger un fichier quantifié."
+            )
         if self.bridge is None or self.bridge.cfg.model_name != self.model_name:
             from transformer_lens import TransformerBridge
 
@@ -579,6 +603,11 @@ class TorchBackend:
 
     def _get_nnsight(self):
         self._require_loaded()
+        if self._split_gguf(self.model_name):
+            raise ProbeError(
+                "Activation patching non supporté pour un modèle GGUF: "
+                "nnsight ne peut pas recharger un fichier quantifié."
+            )
         if self.nnsight_model is None:
             from nnsight import TransformersModel
 

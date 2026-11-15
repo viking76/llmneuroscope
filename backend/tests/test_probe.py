@@ -4,7 +4,7 @@ os.environ["LLM_NEUROSCOPE_BACKEND"] = "mock"
 
 import pytest
 
-from app.services.probe import ProbeError, MockBackend, reset_probe
+from app.services.probe import ProbeError, MockBackend, TorchBackend, reset_probe
 
 reset_probe()
 
@@ -322,3 +322,20 @@ def test_api_patching_endpoint(client):
 def test_api_attribution_rejects_unknown_method(client):
     response = client.post("/api/probe/attribution", json={"text": "test", "method": "lime"})
     assert response.status_code == 422
+
+
+def test_split_gguf_repo_file():
+    source, filename = TorchBackend._split_gguf("Qwen/Qwen2.5-0.5B-Instruct-GGUF/qwen2.5-0.5b-instruct-q8_0.gguf")
+    assert source == "Qwen/Qwen2.5-0.5B-Instruct-GGUF"
+    assert filename == "qwen2.5-0.5b-instruct-q8_0.gguf"
+
+
+def test_split_gguf_non_gguf_returns_none():
+    assert TorchBackend._split_gguf("gpt2") is None
+    assert TorchBackend._split_gguf("EleutherAI/pythia-70m") is None
+
+
+def test_split_gguf_missing_file_raises():
+    with pytest.raises(ProbeError):
+        TorchBackend._split_gguf("/chemin/inexistant/modele.gguf")
+

@@ -4,3 +4,4 @@ safetensors>=0.4.0
 transformer-lens>=4.0
 nnsight>=0.8
 captum>=0.8
+gguf>=0.10

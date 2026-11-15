@@ -148,6 +148,14 @@ body {
   cursor: wait;
 }
 
+.export-link {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+  align-self: center;
+  margin-left: 8px;
+}
+
 .dataset-list {
   background: var(--panel);
   border: 1px solid var(--border);

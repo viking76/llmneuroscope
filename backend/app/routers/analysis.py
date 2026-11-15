@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Response
 
 from app.services.comparison import compare_models
 from app.services.metrics import analyze_model, detect_anomalies, detect_blocking_points, heatmap
+from app.services.reporting import build_report, export_csv, export_pdf
 from app.services.storage import store
 
 router = APIRouter(prefix="/api/datasets/{dataset_id}", tags=["analysis"])
@@ -58,6 +59,34 @@ async def get_anomalies(dataset_id: str, model: str | None = Query(default=None)
     records = _load_records(dataset_id)
     selected = _resolve_model(records, model)
     return {"model": selected, "anomalies": detect_anomalies(records, selected)}
+
+
+@router.get("/report.csv")
+async def get_report_csv(dataset_id: str, model: str | None = Query(default=None)):
+    try:
+        report = build_report(dataset_id, model)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    filename = f"rapport-{report['model']}.csv"
+    return Response(
+        content=export_csv(report),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+@router.get("/report.pdf")
+async def get_report_pdf(dataset_id: str, model: str | None = Query(default=None)):
+    try:
+        report = build_report(dataset_id, model)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    filename = f"rapport-{report['model']}.pdf"
+    return Response(
+        content=export_pdf(report),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
 
 
 @router.get("/compare")

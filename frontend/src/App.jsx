@@ -178,16 +178,32 @@ export default function App() {
                   ))}
                 </div>
                 {activeDataset && (
-                  <label className="model-select">
-                    Modèle :
-                    <select value={model || ""} onChange={(e) => changeModel(e.target.value)}>
-                      {activeDataset.models.map((m) => (
-                        <option key={m} value={m}>
-                          {m}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                  <>
+                    <label className="model-select">
+                      Modèle :
+                      <select value={model || ""} onChange={(e) => changeModel(e.target.value)}>
+                        {activeDataset.models.map((m) => (
+                          <option key={m} value={m}>
+                            {m}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <a
+                      className="btn small export-link"
+                      href={`/api/datasets/${activeId}/report.csv?model=${encodeURIComponent(model || "")}`}
+                      download
+                    >
+                      ⬇️ CSV
+                    </a>
+                    <a
+                      className="btn small export-link"
+                      href={`/api/datasets/${activeId}/report.pdf?model=${encodeURIComponent(model || "")}`}
+                      download
+                    >
+                      ⬇️ PDF
+                    </a>
+                  </>
                 )}
               </div>
 

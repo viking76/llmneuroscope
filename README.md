@@ -42,7 +42,7 @@ Convergence · Dérive · Anomalies · Points bloquants · Poids & activations
 
 | Capacité | Endpoint |
 |---|---|
-| Charger un modèle local | `POST /api/probe/load` |
+| Charger un modèle local (HF ou GGUF `repo/fichier.gguf`) | `POST /api/probe/load` |
 | Tester avec des textes → activité par couche (neurones morts, top neurones) | `POST /api/probe/analyze-texts` |
 | Inspecter les poids (stats, histogramme, poids morts) | `GET /api/probe/weights/{layer}` |
 | Modifier un neurone (×facteur, mise à zéro) — **réversible** | `POST /api/probe/weights/modify` |
@@ -54,6 +54,7 @@ Convergence · Dérive · Anomalies · Points bloquants · Poids & activations
 | **Évals de qualité** — perplexité, répétition, diversité (+ juge G-Eval optionnel) | `POST /api/evals/quality` |
 | **Export Langfuse** — traces d'inférence (push ou JSONL ingestion) | `POST /api/evals/langfuse` |
 | Génération instrumentée (tokens + logprobs + perplexité) | `POST /api/probe/generate` |
+| **Export du rapport** CSV / PDF (résumé, points bloquants, anomalies) | `GET /api/datasets/{id}/report.csv` · `GET /api/datasets/{id}/report.pdf` |
 
 > ⚠️ **Important** : les poids et activations ne sont accessibles que pour un modèle
 > open-weights exécuté localement (GPT-2, Pythia, TinyLlama, Mistral-7B…). Les APIs
@@ -149,9 +150,9 @@ Veille sur l'écosystème open source — bibliothèques repérées pour enrichi
 - [x] Benchmarks standardisés (via lm-evaluation-harness)
 - [x] Évals de qualité avec juge optionnel (via DeepEval)
 - [x] Export des traces vers Langfuse
-- [ ] Export PDF/CSV des rapports d'analyse
+- [x] Export PDF/CSV des rapports d'analyse
 - [ ] Seuils d'alerte configurables par modèle
-- [ ] Support GGUF / llama.cpp pour les modèles quantisés
+- [x] Support GGUF (chargement via transformers, déquantization à la volée)
 - [ ] Mode multi-modèles (>2) dans la comparaison
 
 ---

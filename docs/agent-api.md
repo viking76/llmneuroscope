@@ -36,6 +36,28 @@ POST /api/probe/load
 Réponse : statut + nombre de couches. Modèles conseillés pour commencer :
 `gpt2` (124M), `EleutherAI/pythia-160m`, `EleutherAI/pythia-410m`.
 
+**Modèles GGUF** : passer `repo/fichier.gguf` (ou un chemin local existant).
+Le fichier est déquantisé en float32 par transformers au chargement —
+`analyze-texts`, `weights`, `generate` fonctionnent normalement. En revanche
+`attention` et `patching` ne sont pas disponibles (elles rechargent le modèle
+d'origine via TransformerLens / nnsight) et renvoient une erreur explicite.
+
+```
+POST /api/probe/load
+{"model_name": "Qwen/Qwen2.5-0.5B-Instruct-GGUF/qwen2.5-0.5b-instruct-q8_0.gguf", "device": "cpu"}
+```
+
+### Exporter un rapport (CSV / PDF)
+
+```
+GET /api/datasets/{dataset_id}/report.csv?model={model}
+GET /api/datasets/{dataset_id}/report.pdf?model={model}
+```
+
+Téléchargement direct (pièce jointe). `model` est optionnel (premier
+modèle du dataset par défaut). Le rapport contient le résumé des
+métriques, les points bloquants et les anomalies détectées.
+
 ### 3. Tester avec des textes (activité neuronale)
 
 ```http
@@ -199,7 +221,10 @@ POST /api/probe/weights/modify
 9. Traces : `POST /api/evals/langfuse` exporte les générations d'un dataset
    (JSONL local par défaut, push direct si `LANGFUSE_PUBLIC_KEY` /
    `LANGFUSE_SECRET_KEY` / `LANGFUSE_HOST` sont définis).
-10. Qualité avec juge (`POST /api/evals/quality`, `judge` = `local` | `cloud`) :
+10. Export PDF/CSV : après analyse d'un dataset, récupérer un rapport
+   complét via `GET /api/datasets/{id}/report.csv` ou `.pdf` — utile pour
+   archiver l'état d'un modèle avant/après modification des poids.
+11. Qualité avec juge (`POST /api/evals/quality`, `judge` = `local` | `cloud`) :
    le juge local (Qwen2.5-1.5B-Instruct, téléchargé au premier usage) note la
    cohérence de 0 à 1 avec une raison ; `cloud` utilise G-Eval via
    `OPENAI_API_KEY`. Un score < 0.5 sur un texte produit par le modèle testé
