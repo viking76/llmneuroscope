@@ -37,6 +37,19 @@ class ApplyRequest(BaseModel):
     filename: str
 
 
+class AttributionRequest(BaseModel):
+    text: str
+    method: str = Field(
+        default="integrated-gradients",
+        pattern="^(integrated-gradients|gradient-shap)$",
+    )
+
+
+class PatchingRequest(BaseModel):
+    clean_text: str
+    corrupted_text: str
+
+
 @router.get("/status")
 async def status():
     return get_probe().status()
@@ -80,6 +93,34 @@ async def attention(request: AnalyzeTextsRequest):
             status_code=503,
             detail=f"Analyse d'attention impossible ({exc}). "
             "Installez transformer-lens (backend/requirements-probe.txt).",
+        ) from exc
+
+
+@router.post("/attribution")
+async def attribution(request: AttributionRequest):
+    try:
+        return get_probe().attribution(request.text, request.method)
+    except ProbeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Attribution impossible ({exc}). "
+            "Installez captum (backend/requirements-probe.txt).",
+        ) from exc
+
+
+@router.post("/patching")
+async def patching(request: PatchingRequest):
+    try:
+        return get_probe().patching(request.clean_text, request.corrupted_text)
+    except ProbeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Patching impossible ({exc}). "
+            "Installez nnsight (backend/requirements-probe.txt).",
         ) from exc
 
 

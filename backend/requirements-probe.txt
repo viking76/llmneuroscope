@@ -2,3 +2,5 @@ torch>=2.2.0
 transformers>=4.44.0
 safetensors>=0.4.0
 transformer-lens>=4.0
+nnsight>=0.8
+captum>=0.8

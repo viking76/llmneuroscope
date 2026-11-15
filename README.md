@@ -48,6 +48,8 @@ Convergence · Dérive · Anomalies · Points bloquants · Poids & activations
 | Modifier un neurone (×facteur, mise à zéro) — **réversible** | `POST /api/probe/weights/modify` |
 | Exporter / réappliquer les modifications | `POST /api/probe/weights/export` · `POST /api/probe/weights/apply` |
 | **Entropie d'attention** par couche × tête (TransformerLens) | `POST /api/probe/attention` |
+| **Attribution des tokens** — Integrated Gradients / GradientSHAP (Captum) | `POST /api/probe/attribution` |
+| **Activation patching** — restauration couche par couche (nnsight) | `POST /api/probe/patching` |
 | Génération instrumentée (tokens + logprobs + perplexité) | `POST /api/probe/generate` |
 
 > ⚠️ **Important** : les poids et activations ne sont accessibles que pour un modèle
@@ -130,9 +132,8 @@ Veille sur l'écosystème open source — bibliothèques repérées pour enrichi
 |---|---|---|
 | [safetensors](https://github.com/huggingface/safetensors) (Hugging Face) | ✅ **Intégré** — export/import des poids modifiés, format sûr et standard | fait |
 | [TransformerLens](https://github.com/TransformerLensOrg/TransformerLens) | ✅ **Intégré** — entropie d'attention par couche × tête via `TransformerBridge` | fait |
-| [nnsight](https://github.com/nnsight/nnsight) | Intervention dans les internals de modèles géants (tracer, éditer les activations à la volée) | haute |
-| Activation patching via TransformerLens | Comparer les activations avant/après modification de poids, position par position | haute |
-| [Captum](https://github.com/pytorch/captum) / [SHAP](https://github.com/shap/shap) | Attribution d'importance par token / neurone | moyenne |
+| [nnsight](https://github.com/nnsight/nnsight) | ✅ **Intégré** — activation patching couche par couche via `TransformersModel` | fait |
+| [Captum](https://github.com/pytorch/captum) (PyTorch) | ✅ **Intégré** — attribution de tokens : Integrated Gradients + GradientSHAP | fait |
 | [DeepEval](https://github.com/confident-ai/deepeval) | Évals de qualité (G-Eval, hallucination, pertinence) complémentaires des métriques internes | moyenne |
 | [Langfuse](https://github.com/langfuse/langfuse) | Observabilité des traces en production à connecter aux analyses hors-ligne | moyenne |
 | [lm-evaluation-harness](https://github.com/EleutherAI/lm-evaluation-harness) | Benchmarks standardisés comparables entre versions | basse |
@@ -140,7 +141,8 @@ Veille sur l'écosystème open source — bibliothèques repérées pour enrichi
 ## 🗺️ Feuille de route
 
 - [x] Entropie d'attention par couche × tête (via TransformerLens)
-- [ ] Activation patching avant/après modification automatisé
+- [x] Activation patching couche par couche (via nnsight)
+- [x] Attribution de tokens — Integrated Gradients / GradientSHAP (via Captum)
 - [ ] Export PDF/CSV des rapports d'analyse
 - [ ] Seuils d'alerte configurables par modèle
 - [ ] Support GGUF / llama.cpp pour les modèles quantisés

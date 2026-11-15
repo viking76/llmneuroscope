@@ -256,3 +256,69 @@ def test_api_attention_endpoint(client):
     body = response.json()
     assert body["n_layers"] == 4
     assert len(body["layer_entropy"]) == 4
+
+
+def test_mock_attribution_shape_and_determinism():
+    probe = MockBackend()
+    first = probe.attribution("le chat dort profondément", "integrated-gradients")
+    second = probe.attribution("le chat dort profondément", "integrated-gradients")
+    assert first == second
+    assert first["method"] == "integrated-gradients"
+    assert first["n_tokens"] == 4
+    assert len(first["tokens"]) == 4
+    assert 1 <= len(first["top_tokens"]) <= 5
+    assert all(entry["share"] >= 0.0 for entry in first["tokens"])
+
+
+def test_mock_attribution_top_tokens_are_real_tokens():
+    probe = MockBackend()
+    result = probe.attribution("un deux trois", "gradient-shap")
+    assert result["method"] == "gradient-shap"
+    valid = {entry["token"] for entry in result["tokens"]}
+    assert all(entry["token"] in valid for entry in result["top_tokens"])
+
+
+def test_mock_patching_profile():
+    probe = MockBackend()
+    result = probe.patching("Le capital de la France est Paris", "Le capital de l'Italie est Paris")
+    assert result["engine"] == "mock"
+    assert result["n_layers"] == 4
+    assert len(result["layer_kl"]) == 4
+    assert len(result["layer_restoration"]) == 4
+    assert result["baseline_kl"] >= max(result["layer_kl"])
+    assert all(0.0 <= value <= 100.0 for value in result["layer_restoration"])
+    assert 0 <= result["critical_layer"] < 4
+
+
+def test_mock_patching_deterministic():
+    probe = MockBackend()
+    first = probe.patching("texte propre", "texte corrompu")
+    second = probe.patching("texte propre", "texte corrompu")
+    assert first == second
+
+
+def test_api_attribution_endpoint(client):
+    response = client.post(
+        "/api/probe/attribution",
+        json={"text": "la convergence se mesure avec", "method": "integrated-gradients"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["n_tokens"] == 5
+    assert len(body["tokens"]) == 5
+
+
+def test_api_patching_endpoint(client):
+    response = client.post(
+        "/api/probe/patching",
+        json={"clean_text": "La France a pour capitale Paris", "corrupted_text": "L'Italie a pour capitale Paris"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["n_layers"] == 4
+    assert body["baseline_kl"] > 0
+
+
+def test_api_attribution_rejects_unknown_method(client):
+    response = client.post("/api/probe/attribution", json={"text": "test", "method": "lime"})
+    assert response.status_code == 422

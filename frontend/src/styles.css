@@ -628,6 +628,58 @@ select {
   margin-bottom: 6px;
 }
 
+.attr-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 10px 0;
+}
+
+.attr-chip {
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.patch-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 480px;
+  margin-top: 10px;
+}
+
+.patch-row {
+  display: grid;
+  grid-template-columns: 28px 1fr 64px;
+  align-items: center;
+  gap: 10px;
+}
+
+.patch-track {
+  height: 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.patch-fill {
+  height: 100%;
+  background: var(--accent, #48bb78);
+  border-radius: 6px;
+}
+
+.patch-fill.critical {
+  background: #e55a5a;
+}
+
+.patch-value {
+  text-align: right;
+}
+
 input {
   background: var(--bg);
   border: 1px solid var(--border);

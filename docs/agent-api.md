@@ -96,7 +96,50 @@ déterministe côté mock. Cette analyse est **en lecture seule et indépendante
 elle utilise sa propre instance du modèle (bridge), donc elle ne reflète pas les
 modifications de poids faites via `/weights/modify`.
 
-### 6. Modifier un neurone si nécessaire
+### 6. Attribuer la prédiction aux tokens (Captum)
+
+```http
+POST /api/probe/attribution
+{"text": "The capital of France is", "method": "integrated-gradients"}
+```
+
+`method` : `integrated-gradients` (par défaut) ou `gradient-shap`. La cible est
+le token prédit en position suivante (greedy) ; chaque token du prompt reçoit
+un `score` (positif = pousse vers la prédiction, négatif = la freine) et une
+`share` (part de |score| total).
+
+Interprétation : si la prédiction repose sur un seul token (`share` > 0.8),
+elle est fragile ; un prompt bien formé répartit l'attribution sur plusieurs
+tokens porteurs de sens.
+
+Moteur : **Captum** (gradients sur les embeddings via `inputs_embeds`).
+
+### 7. Activation patching (nnsight)
+
+```http
+POST /api/probe/patching
+{"clean_text": "The capital of France is Paris", "corrupted_text": "The capital of Italy is Paris"}
+```
+
+Pour chaque couche du décodeur : remplace l'activation du **dernier token** du
+texte corrompu par celle du texte propre, puis mesure la divergence KL entre la
+prédiction patchée et la prédiction propre.
+
+Réponse : `baseline_kl` (corrompu vs propre, sans patch), `layer_kl` (par
+couche), `layer_restoration` (% de KL baseline éliminée par le patch) et
+`critical_layer` (couche qui restaure le moins).
+
+Interprétation : une restauration qui monte avec la profondeur est normale
+(l'information se condense vers la sortie). Une couche au milieu qui restaure
+moins que ses voisines est un point bloquant potentiel. Le patch est
+**positionnel** (dernier token) : corruptez un token antérieur au point mesuré,
+sinon les deux textes produisent des sorties identiques et l'analyse est rejetée.
+
+Moteur : **nnsight** (`TransformersModel`, instance séparée en lecture seule —
+ne reflète pas les modifications de poids). Requiert que le texte corrompu
+produise des logits différents du texte propre.
+
+### 8. Modifier un neurone si nécessaire
 
 ```http
 POST /api/probe/weights/modify
@@ -121,7 +164,7 @@ POST /api/probe/weights/apply  {"filename": "mon-correctif.safetensors"}
 `apply` recharge un fichier exporté dans le modèle courant. Les chemins sont
 confinés à `data/weight-edits/` (toute traversée de répertoire est rejetée).
 
-### 7. Vérifier l'effet après modification
+### 9. Vérifier l'effet après modification
 
 ```http
 POST /api/probe/analyze-texts
@@ -146,6 +189,8 @@ POST /api/probe/weights/modify
 5. Pour une analyse de convergence entre versions, exporter des logs (JSONL avec
    `model`, `tokens`, `logprobs`, `run`) et utiliser `POST /api/datasets` +
    `GET /api/datasets/{id}/compare`.
-6. Combiner `analyze-texts` (activations), `attention` (couches × têtes) et
-   `weights/{layer}` (poids) avant toute modification : un blocage se manifeste
-   rarement sur une seule de ces trois vues.
+6. Combiner `analyze-texts` (activations), `attention` (couches × têtes),
+   `attribution` (tokens) et `patching` (couches critiques) avant toute
+   modification : un blocage se manifeste rarement sur une seule de ces vues.
+7. Pour `patching`, corrompre un token **antérieur** à la position mesurée
+   (sujet, relation) — pas le dernier token.

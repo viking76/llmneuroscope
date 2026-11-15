@@ -73,6 +73,24 @@ def summarize_attention(patterns: list[np.ndarray]) -> dict:
     }
 
 
+def summarize_attribution(tokens: list[str], scores: np.ndarray, target_token: str, method: str) -> dict:
+    scores = np.asarray(scores, dtype=float)
+    total = float(np.abs(scores).sum()) or 1.0
+    entries = [
+        {"token": token, "score": round(float(score), 4), "share": round(abs(float(score)) / total, 4)}
+        for token, score in zip(tokens, scores)
+    ]
+    ranked = sorted(entries, key=lambda entry: entry["score"], reverse=True)
+    return {
+        "method": method,
+        "target_token": target_token,
+        "n_tokens": len(tokens),
+        "tokens": entries,
+        "top_tokens": ranked[:TOP_NEURONS],
+        "bottom_tokens": ranked[-TOP_NEURONS:][::-1],
+    }
+
+
 class MockBackend:
     """Backend de simulation déterministe, pour tester sans torch ni modèle réel."""
 
@@ -274,6 +292,28 @@ class MockBackend:
             **summarize_attention(averaged),
         }
 
+    def attribution(self, text: str, method: str) -> dict:
+        tokens = text.split()[:32] or ["<vide>"]
+        seed = int(hashlib.sha256(f"{method}:{text}".encode()).hexdigest()[:8], 16)
+        rng = np.random.default_rng(seed)
+        scores = rng.normal(0.0, 1.0, size=len(tokens))
+        return summarize_attribution(tokens, scores, tokens[-1], method)
+
+    def patching(self, clean_text: str, corrupted_text: str) -> dict:
+        seed = int(hashlib.sha256(f"{clean_text}|{corrupted_text}".encode()).hexdigest()[:8], 16)
+        rng = np.random.default_rng(seed)
+        baseline = float(rng.uniform(0.8, 2.5))
+        restorations = np.sort(rng.uniform(0.05, 0.95, size=4))
+        layer_kl = [round(baseline * (1.0 - value), 4) for value in restorations]
+        return {
+            "engine": "mock",
+            "n_layers": 4,
+            "baseline_kl": round(baseline, 4),
+            "layer_kl": layer_kl,
+            "layer_restoration": [round(float(value * 100.0), 1) for value in restorations],
+            "critical_layer": int(np.argmin(restorations)),
+        }
+
 
 class TorchBackend:
     """Backend réel: modèle open-weights chargé localement via transformers."""
@@ -293,6 +333,9 @@ class TorchBackend:
         self.modified = False
         self.edit_log = []
         self.bridge = None
+        self.nnsight_model = None
+        self.nnsight_n_layers = 0
+        self.nnsight_layers_path = None
 
     def load(self, model_name: str, device: str) -> dict:
         from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -525,6 +568,114 @@ class TorchBackend:
             "n_texts": len(texts[:16]),
             "engine": "transformer-lens",
             **summarize_attention(averaged),
+        }
+
+    def _get_nnsight(self):
+        self._require_loaded()
+        if self.nnsight_model is None:
+            from nnsight import TransformersModel
+
+            self.nnsight_model = TransformersModel(
+                self.model_name,
+                device_map=str(self.device),
+                dispatch=True,
+                task="text-generation",
+            )
+            module_list_path, layer_count = None, 0
+            for name, module in self.nnsight_model._module.named_modules():
+                if isinstance(module, self.torch.nn.ModuleList) and len(module) > layer_count:
+                    module_list_path, layer_count = name, len(module)
+            if module_list_path is None:
+                raise ProbeError("Couches du décodeur introuvables pour ce modèle")
+            self.nnsight_n_layers = layer_count
+            self.nnsight_layers_path = module_list_path
+        return self.nnsight_model
+
+    def _nnsight_layers(self, model):
+        envoy = model
+        for part in self.nnsight_layers_path.split("."):
+            envoy = getattr(envoy, part)
+        return envoy
+
+    def attribution(self, text: str, method: str) -> dict:
+        self._require_loaded()
+        from captum.attr import GradientShap, IntegratedGradients
+
+        torch = self.torch
+        encoded = self.tokenizer(text, return_tensors="pt", truncation=True).to(self.device)
+        with torch.no_grad():
+            target = int(self.model(**encoded).logits[0, -1].argmax())
+
+        def forward(embeddings, mask):
+            return self.model(inputs_embeds=embeddings, attention_mask=mask).logits[:, -1, target]
+
+        inputs = self.model.get_input_embeddings()(encoded["input_ids"])
+        baselines = torch.zeros_like(inputs)
+        if method == "gradient-shap":
+            attrs = GradientShap(forward).attribute(
+                inputs=inputs,
+                baselines=baselines,
+                additional_forward_args=(encoded["attention_mask"],),
+                n_samples=16,
+                stdevs=0.01,
+            )
+        else:
+            attrs = IntegratedGradients(forward).attribute(
+                inputs=inputs,
+                baselines=baselines,
+                additional_forward_args=(encoded["attention_mask"],),
+                n_steps=16,
+            )
+        tokens = self.tokenizer.convert_ids_to_tokens(encoded["input_ids"][0])
+        return summarize_attribution(
+            tokens,
+            attrs.sum(-1)[0].detach().cpu().numpy(),
+            self.tokenizer.decode([target]),
+            method,
+        )
+
+    def patching(self, clean_text: str, corrupted_text: str) -> dict:
+        self._require_loaded()
+        model = self._get_nnsight()
+        layers = self._nnsight_layers(model)
+        torch = self.torch
+
+        def kld(first, second):
+            return float(
+                torch.nn.functional.kl_div(
+                    torch.log_softmax(first[0, -1], dim=-1),
+                    torch.log_softmax(second[0, -1], dim=-1),
+                    log_target=True,
+                    reduction="sum",
+                )
+            )
+
+        with model.trace(clean_text):
+            clean_logits = model.output.logits.save()
+        with model.trace(corrupted_text):
+            corrupt_logits = model.output.logits.save()
+        baseline = kld(corrupt_logits, clean_logits)
+        if baseline < 1e-6:
+            raise ProbeError(
+                "Les deux textes produisent des sorties identiques — corruptez un token antérieur au point mesuré."
+            )
+        layer_kl = []
+        for layer in range(self.nnsight_n_layers):
+            with model.trace(clean_text):
+                acts = layers[layer].output[0].save()
+            real = acts.clone().detach()
+            with model.trace(corrupted_text):
+                layers[layer].output[0][-1, :] = real[-1, :]
+                patched = model.output.logits.save()
+            layer_kl.append(kld(patched, clean_logits))
+        restorations = [round((1.0 - kl / baseline) * 100.0, 1) for kl in layer_kl]
+        return {
+            "engine": "nnsight",
+            "n_layers": len(layer_kl),
+            "baseline_kl": round(baseline, 4),
+            "layer_kl": [round(kl, 4) for kl in layer_kl],
+            "layer_restoration": restorations,
+            "critical_layer": int(np.argmin(restorations)),
         }
 
     def generate(self, prompt: str, max_new_tokens: int) -> dict:
