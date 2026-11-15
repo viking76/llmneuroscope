@@ -21,7 +21,7 @@ export default function EvalTab() {
   const [limit, setLimit] = useState(10);
   const [benchmarkResult, setBenchmarkResult] = useState(null);
   const [texts, setTexts] = useState("Le chat dort sur le tapis.\nLe chat chat chat chat chat.");
-  const [useJudge, setUseJudge] = useState(false);
+  const [judgeMode, setJudgeMode] = useState("none");
   const [qualityResult, setQualityResult] = useState(null);
   const [datasets, setDatasets] = useState([]);
   const [datasetId, setDatasetId] = useState("");
@@ -79,7 +79,7 @@ export default function EvalTab() {
         await evalRequest("/quality", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ texts: list, use_judge: useJudge }),
+          body: JSON.stringify({ texts: list, judge: judgeMode }),
         })
       );
     });
@@ -183,12 +183,12 @@ export default function EvalTab() {
         </p>
         <div className="compare-selects">
           <label className="muted small">
-            <input
-              type="checkbox"
-              checked={useJudge}
-              onChange={(e) => setUseJudge(e.target.checked)}
-            />{" "}
-            Juge DeepEval G-Eval (nécessite OPENAI_API_KEY)
+            Juge DeepEval :
+            <select value={judgeMode} onChange={(e) => setJudgeMode(e.target.value)}>
+              <option value="none">sans juge (métriques internes)</option>
+              <option value="local">juge local (Qwen 1.5B, téléchargé au 1er usage)</option>
+              <option value="cloud">G-Eval cloud (nécessite OPENAI_API_KEY)</option>
+            </select>
           </label>
         </div>
         <textarea

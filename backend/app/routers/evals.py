@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from app.services import evals as evals_service
 from app.services.evals import (
     BENCHMARK_TASKS,
     EvalError,
@@ -27,7 +28,7 @@ class BenchmarkRequest(BaseModel):
 
 class QualityRequest(BaseModel):
     texts: list[str] = Field(min_length=1, max_length=64)
-    use_judge: bool = False
+    judge: str = Field(default="none", pattern="^(none|local|cloud)$")
 
 
 class LangfuseRequest(BaseModel):
@@ -83,16 +84,21 @@ async def quality(request: QualityRequest):
         report = quality_report(request.texts[:64], logprobs_per_text)
     except EvalError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    if request.use_judge:
+    if request.judge == "cloud":
         if not deepeval_judge_available():
             report["judge_note"] = (
-                "Juge DeepEval indisponible: définissez OPENAI_API_KEY pour activer G-Eval (gpt-4o-mini)."
+                "Juge cloud indisponible: définissez OPENAI_API_KEY pour activer G-Eval (gpt-4o-mini)."
             )
         else:
             try:
                 report["judge"] = run_judge_evals(request.texts)
             except Exception as exc:
                 report["judge"] = {"judge": "deepeval/gpt-4o-mini", "error": str(exc)[:200]}
+    elif request.judge == "local":
+        try:
+            report["judge"] = evals_service.run_local_judge_evals(request.texts)
+        except Exception as exc:
+            report["judge"] = {"judge": "deepeval/local", "error": str(exc)[:200]}
     return report
 
 

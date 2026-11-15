@@ -138,7 +138,7 @@ Veille sur l'écosystème open source — bibliothèques repérées pour enrichi
 | [nnsight](https://github.com/nnsight/nnsight) | ✅ **Intégré** — activation patching couche par couche via `TransformersModel` | fait |
 | [Captum](https://github.com/pytorch/captum) (PyTorch) | ✅ **Intégré** — attribution de tokens : Integrated Gradients + GradientSHAP | fait |
 | [lm-evaluation-harness](https://github.com/EleutherAI/lm-evaluation-harness) | ✅ **Intégré** — benchmarks standardisés (lambada_openai, hellaswag, arc_easy, winogrande, piqa) | fait |
-| [DeepEval](https://github.com/confident-ai/deepeval) | ✅ **Intégré** — évals de qualité : métriques internes (perplexité, répétition, diversité) + juge G-Eval optionnel (`OPENAI_API_KEY`) | fait |
+| [DeepEval](https://github.com/confident-ai/deepeval) | ✅ **Intégré** — évals de qualité : métriques internes (perplexité, répétition, diversité) + juge LLM au choix : **local** (Qwen2.5-1.5B-Instruct via `BaseMetric`, téléchargé au 1er usage) ou cloud G-Eval (`OPENAI_API_KEY`) | fait |
 | [Langfuse](https://github.com/langfuse/langfuse) | ✅ **Intégré** — export des traces d'inférence : push SDK ou JSONL compatible ingestion | fait |
 
 ## 🗺️ Feuille de route

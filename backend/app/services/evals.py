@@ -87,6 +87,28 @@ def deepeval_judge_available() -> bool:
     return bool(os.environ.get("OPENAI_API_KEY"))
 
 
+def run_local_judge_evals(texts: list[str]) -> dict:
+    from deepeval.test_case import LLMTestCase
+
+    from app.services.judge import JUDGE_MODEL, LocalCoherenceMetric, LocalInstructJudge
+
+    metric = LocalCoherenceMetric(LocalInstructJudge())
+    results = []
+    for text in texts[:16]:
+        try:
+            metric.measure(LLMTestCase(input="", actual_output=text))
+            results.append(
+                {
+                    "text": text[:60],
+                    "score": metric.score,
+                    "reason": (metric.reason or "")[:200],
+                }
+            )
+        except Exception as exc:
+            results.append({"text": text[:60], "error": str(exc)[:200]})
+    return {"judge": f"deepeval/local:{JUDGE_MODEL}", "results": results}
+
+
 def run_judge_evals(texts: list[str]) -> dict:
     from deepeval.metrics import GEval
     from deepeval.test_case import LLMTestCase, LLMTestCaseParams

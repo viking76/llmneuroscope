@@ -138,14 +138,68 @@ def test_api_quality_mock(client):
     assert len(body["texts"]) == 2
 
 
-def test_api_quality_judge_unavailable_note(client, monkeypatch):
+def test_api_quality_judge_cloud_unavailable_note(client, monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     response = client.post(
         "/api/evals/quality",
-        json={"texts": ["texte simple"], "use_judge": True},
+        json={"texts": ["texte simple"], "judge": "cloud"},
     )
     assert response.status_code == 200
     assert "OPENAI_API_KEY" in response.json().get("judge_note", "")
+
+
+def test_api_quality_judge_local_wiring(client, monkeypatch):
+    import app.services.evals as evals_module
+
+    monkeypatch.setattr(
+        evals_module,
+        "run_local_judge_evals",
+        lambda texts: {"judge": "deepeval/local:stub", "results": [{"text": texts[0][:60], "score": 0.8}]},
+    )
+    response = client.post(
+        "/api/evals/quality",
+        json={"texts": ["texte simple"], "judge": "local"},
+    )
+    assert response.status_code == 200
+    assert response.json()["judge"]["judge"] == "deepeval/local:stub"
+
+
+def test_api_quality_rejects_unknown_judge(client):
+    response = client.post(
+        "/api/evals/quality",
+        json={"texts": ["texte simple"], "judge": "gpt5"},
+    )
+    assert response.status_code == 422
+
+
+def test_local_coherence_metric_parses_judge_json():
+    from deepeval.test_case import LLMTestCase
+
+    from app.services.judge import LocalCoherenceMetric
+
+    class StubJudge:
+        def generate(self, prompt):
+            return 'Voici mon évaluation: {"score": 4, "reason": "texte fluide"}'
+
+    metric = LocalCoherenceMetric(StubJudge())
+    score = metric.measure(LLMTestCase(input="", actual_output="un texte propre"))
+    assert score == 0.8
+    assert metric.reason == "texte fluide"
+    assert metric.success is True
+
+
+def test_local_coherence_metric_rejects_invalid_json():
+    from deepeval.test_case import LLMTestCase
+
+    from app.services.judge import LocalCoherenceMetric
+
+    class BadJudge:
+        def generate(self, prompt):
+            return "je ne sais pas"
+
+    metric = LocalCoherenceMetric(BadJudge())
+    with pytest.raises(ValueError, match="sans JSON"):
+        metric.measure(LLMTestCase(input="", actual_output="texte"))
 
 
 def test_api_langfuse_export_local(client, tmp_path, monkeypatch):

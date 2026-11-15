@@ -199,3 +199,8 @@ POST /api/probe/weights/modify
 9. Traces : `POST /api/evals/langfuse` exporte les générations d'un dataset
    (JSONL local par défaut, push direct si `LANGFUSE_PUBLIC_KEY` /
    `LANGFUSE_SECRET_KEY` / `LANGFUSE_HOST` sont définis).
+10. Qualité avec juge (`POST /api/evals/quality`, `judge` = `local` | `cloud`) :
+   le juge local (Qwen2.5-1.5B-Instruct, téléchargé au premier usage) note la
+   cohérence de 0 à 1 avec une raison ; `cloud` utilise G-Eval via
+   `OPENAI_API_KEY`. Un score < 0.5 sur un texte produit par le modèle testé
+   est un signal de dégénération.
