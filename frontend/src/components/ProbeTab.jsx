@@ -44,6 +44,12 @@ export default function ProbeTab() {
   const [exportResult, setExportResult] = useState(null);
   const [applyFilename, setApplyFilename] = useState("");
   const [attentionResult, setAttentionResult] = useState(null);
+  const [attributionText, setAttributionText] = useState("The capital of France is");
+  const [attributionMethod, setAttributionMethod] = useState("integrated-gradients");
+  const [attributionResult, setAttributionResult] = useState(null);
+  const [cleanText, setCleanText] = useState("The capital of France is Paris");
+  const [corruptedText, setCorruptedText] = useState("The capital of Italy is Paris");
+  const [patchingResult, setPatchingResult] = useState(null);
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -149,6 +155,24 @@ export default function ProbeTab() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ texts: list }),
+      }));
+    });
+
+  const analyzeAttribution = () =>
+    run(async () => {
+      setAttributionResult(await probeRequest("/attribution", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: attributionText, method: attributionMethod }),
+      }));
+    });
+
+  const runPatching = () =>
+    run(async () => {
+      setPatchingResult(await probeRequest("/patching", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clean_text: cleanText, corrupted_text: corruptedText }),
       }));
     });
 
@@ -289,6 +313,107 @@ export default function ProbeTab() {
                       </p>
                     ))}
                   </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="chart-card">
+            <h3>Attribution des tokens (Captum)</h3>
+            <p className="muted small">
+              Contribution de chaque token du prompt à la prédiction suivante :
+              Integrated Gradients ou GradientSHAP. Un prompt dont la prédiction
+              dépend d'un seul token est fragile.
+            </p>
+            <div className="compare-selects">
+              <input
+                value={attributionText}
+                onChange={(e) => setAttributionText(e.target.value)}
+                placeholder="Texte à attribuer"
+                style={{ width: 260 }}
+              />
+              <select value={attributionMethod} onChange={(e) => setAttributionMethod(e.target.value)}>
+                <option value="integrated-gradients">Integrated Gradients</option>
+                <option value="gradient-shap">GradientSHAP</option>
+              </select>
+              <button className="btn primary small" onClick={analyzeAttribution} disabled={busy}>
+                Attribuer
+              </button>
+            </div>
+            {attributionResult && (
+              <div style={{ marginTop: 12 }}>
+                <p className="muted small">
+                  Méthode {attributionResult.method} · token prédit{" "}
+                  <code>{attributionResult.target_token}</code> · {attributionResult.n_tokens} tokens
+                </p>
+                <div className="attr-chips">
+                  {attributionResult.tokens.map((entry, index) => (
+                    <span
+                      key={index}
+                      className="attr-chip"
+                      style={{
+                        background: entry.score >= 0
+                          ? `rgba(72, 187, 120, ${Math.min(0.85, Math.abs(entry.share) * 2)})`
+                          : `rgba(229, 90, 90, ${Math.min(0.85, Math.abs(entry.share) * 2)})`,
+                      }}
+                      title={`score ${entry.score} · part ${(entry.share * 100).toFixed(1)} %`}
+                    >
+                      {entry.token}
+                    </span>
+                  ))}
+                </div>
+                <p className="muted small">
+                  Plus contributifs :{" "}
+                  {attributionResult.top_tokens.map((entry) => `${entry.token} (${entry.score})`).join(", ")}
+                </p>
+              </div>
+            )}
+          </div>
+
+          <div className="chart-card">
+            <h3>Activation patching (nnsight)</h3>
+            <p className="muted small">
+              Remplace couche par couche l'activation du dernier token du texte
+              corrompu par celle du texte propre, puis mesure la restauration de
+              la prédiction (KL). Les couches qui restaurnent le plus portent
+              l'information clé ; la couche critique est celle qui restaure le moins.
+            </p>
+            <div className="compare-selects">
+              <input
+                value={cleanText}
+                onChange={(e) => setCleanText(e.target.value)}
+                placeholder="Texte propre"
+                style={{ width: 220 }}
+              />
+              <input
+                value={corruptedText}
+                onChange={(e) => setCorruptedText(e.target.value)}
+                placeholder="Texte corrompu"
+                style={{ width: 220 }}
+              />
+              <button className="btn primary small" onClick={runPatching} disabled={busy}>
+                Patcher
+              </button>
+            </div>
+            {patchingResult && (
+              <div style={{ marginTop: 12 }}>
+                <p className="muted small">
+                  Moteur {patchingResult.engine} · {patchingResult.n_layers} couches · KL corrompu
+                  vs propre : {patchingResult.baseline_kl} · couche critique : #{patchingResult.critical_layer}
+                </p>
+                <div className="patch-bars">
+                  {patchingResult.layer_restoration.map((value, layer) => (
+                    <div key={layer} className="patch-row">
+                      <span className="muted small">L{layer}</span>
+                      <div className="patch-track">
+                        <div
+                          className={`patch-fill ${layer === patchingResult.critical_layer ? "critical" : ""}`}
+                          style={{ width: `${Math.max(1, Math.min(100, value))}%` }}
+                        />
+                      </div>
+                      <span className="muted small patch-value">{value.toFixed(1)} %</span>
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
