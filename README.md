@@ -50,6 +50,9 @@ Convergence · Dérive · Anomalies · Points bloquants · Poids & activations
 | **Entropie d'attention** par couche × tête (TransformerLens) | `POST /api/probe/attention` |
 | **Attribution des tokens** — Integrated Gradients / GradientSHAP (Captum) | `POST /api/probe/attribution` |
 | **Activation patching** — restauration couche par couche (nnsight) | `POST /api/probe/patching` |
+| **Benchmarks standardisés** — lambada, hellaswag, arc_easy… (lm-eval) | `POST /api/evals/benchmark` |
+| **Évals de qualité** — perplexité, répétition, diversité (+ juge G-Eval optionnel) | `POST /api/evals/quality` |
+| **Export Langfuse** — traces d'inférence (push ou JSONL ingestion) | `POST /api/evals/langfuse` |
 | Génération instrumentée (tokens + logprobs + perplexité) | `POST /api/probe/generate` |
 
 > ⚠️ **Important** : les poids et activations ne sont accessibles que pour un modèle
@@ -134,15 +137,18 @@ Veille sur l'écosystème open source — bibliothèques repérées pour enrichi
 | [TransformerLens](https://github.com/TransformerLensOrg/TransformerLens) | ✅ **Intégré** — entropie d'attention par couche × tête via `TransformerBridge` | fait |
 | [nnsight](https://github.com/nnsight/nnsight) | ✅ **Intégré** — activation patching couche par couche via `TransformersModel` | fait |
 | [Captum](https://github.com/pytorch/captum) (PyTorch) | ✅ **Intégré** — attribution de tokens : Integrated Gradients + GradientSHAP | fait |
-| [DeepEval](https://github.com/confident-ai/deepeval) | Évals de qualité (G-Eval, hallucination, pertinence) complémentaires des métriques internes | moyenne |
-| [Langfuse](https://github.com/langfuse/langfuse) | Observabilité des traces en production à connecter aux analyses hors-ligne | moyenne |
-| [lm-evaluation-harness](https://github.com/EleutherAI/lm-evaluation-harness) | Benchmarks standardisés comparables entre versions | basse |
+| [lm-evaluation-harness](https://github.com/EleutherAI/lm-evaluation-harness) | ✅ **Intégré** — benchmarks standardisés (lambada_openai, hellaswag, arc_easy, winogrande, piqa) | fait |
+| [DeepEval](https://github.com/confident-ai/deepeval) | ✅ **Intégré** — évals de qualité : métriques internes (perplexité, répétition, diversité) + juge G-Eval optionnel (`OPENAI_API_KEY`) | fait |
+| [Langfuse](https://github.com/langfuse/langfuse) | ✅ **Intégré** — export des traces d'inférence : push SDK ou JSONL compatible ingestion | fait |
 
 ## 🗺️ Feuille de route
 
 - [x] Entropie d'attention par couche × tête (via TransformerLens)
 - [x] Activation patching couche par couche (via nnsight)
 - [x] Attribution de tokens — Integrated Gradients / GradientSHAP (via Captum)
+- [x] Benchmarks standardisés (via lm-evaluation-harness)
+- [x] Évals de qualité avec juge optionnel (via DeepEval)
+- [x] Export des traces vers Langfuse
 - [ ] Export PDF/CSV des rapports d'analyse
 - [ ] Seuils d'alerte configurables par modèle
 - [ ] Support GGUF / llama.cpp pour les modèles quantisés

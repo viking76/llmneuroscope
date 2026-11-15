@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import analysis, datasets, probe
+from app.routers import analysis, datasets, evals, probe
 
 app = FastAPI(
     title="LLM Neuroscope",
@@ -22,6 +22,7 @@ app.add_middleware(
 app.include_router(datasets.router)
 app.include_router(analysis.router)
 app.include_router(probe.router)
+app.include_router(evals.router)
 
 
 @app.get("/api/health")

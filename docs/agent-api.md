@@ -194,3 +194,8 @@ POST /api/probe/weights/modify
    modification : un blocage se manifeste rarement sur une seule de ces vues.
 7. Pour `patching`, corrompre un token **antérieur** à la position mesurée
    (sujet, relation) — pas le dernier token.
+8. Benchmarks (`POST /api/evals/benchmark`) : commencer par `lambada_openai`
+   avec `limit` 5-10 avant de lancer une tâche coûteuse (`hellaswag`).
+9. Traces : `POST /api/evals/langfuse` exporte les générations d'un dataset
+   (JSONL local par défaut, push direct si `LANGFUSE_PUBLIC_KEY` /
+   `LANGFUSE_SECRET_KEY` / `LANGFUSE_HOST` sont définis).

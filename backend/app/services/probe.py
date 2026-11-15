@@ -299,6 +299,13 @@ class MockBackend:
         scores = rng.normal(0.0, 1.0, size=len(tokens))
         return summarize_attribution(tokens, scores, tokens[-1], method)
 
+    def text_logprobs(self, text: str) -> list[float]:
+        tokens = text.split() or ["<vide>"]
+        rng = np.random.default_rng(
+            int(hashlib.sha256(text.encode()).hexdigest()[:8], 16)
+        )
+        return [round(float(value), 4) for value in rng.normal(-1.2, 0.8, size=max(len(tokens) - 1, 1))]
+
     def patching(self, clean_text: str, corrupted_text: str) -> dict:
         seed = int(hashlib.sha256(f"{clean_text}|{corrupted_text}".encode()).hexdigest()[:8], 16)
         rng = np.random.default_rng(seed)
@@ -677,6 +684,16 @@ class TorchBackend:
             "layer_restoration": restorations,
             "critical_layer": int(np.argmin(restorations)),
         }
+
+    def text_logprobs(self, text: str) -> list[float]:
+        self._require_loaded()
+        torch = self.torch
+        encoded = self.tokenizer(text, return_tensors="pt", truncation=True).to(self.device)
+        with torch.no_grad():
+            logits = self.model(**encoded).logits[0]
+        log_probs = torch.log_softmax(logits, dim=-1)
+        ids = encoded["input_ids"][0]
+        return [round(float(log_probs[i - 1, ids[i]]), 4) for i in range(1, len(ids))]
 
     def generate(self, prompt: str, max_new_tokens: int) -> dict:
         self._require_loaded()

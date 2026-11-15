@@ -15,6 +15,7 @@ import HeatmapTab from "./components/HeatmapTab.jsx";
 import AnomaliesTab from "./components/AnomaliesTab.jsx";
 import ComparisonTab from "./components/ComparisonTab.jsx";
 import ProbeTab from "./components/ProbeTab.jsx";
+import EvalTab from "./components/EvalTab.jsx";
 
 const TABS = [
   { id: "overview", label: "Vue d'ensemble" },
@@ -22,6 +23,7 @@ const TABS = [
   { id: "anomalies", label: "Anomalies & points bloquants" },
   { id: "compare", label: "Comparaison de modèles" },
   { id: "probe", label: "Neurones & poids" },
+  { id: "evals", label: "Évals & benchmarks" },
 ];
 
 export default function App() {
@@ -150,7 +152,7 @@ export default function App() {
         </aside>
 
         <main className="content">
-          {!activeDataset && tab !== "probe" && (
+          {!activeDataset && tab !== "probe" && tab !== "evals" && (
             <div className="empty-state">
               <h2>Aucun dataset sélectionné</h2>
               <p>
@@ -161,7 +163,7 @@ export default function App() {
             </div>
           )}
 
-          {(activeDataset || tab === "probe") && (
+          {(activeDataset || tab === "probe" || tab === "evals") && (
             <>
               <div className="toolbar">
                 <div className="tabs">
@@ -191,7 +193,7 @@ export default function App() {
 
               {loading && <div className="loading">Analyse en cours…</div>}
 
-              {!loading && analysis && (
+              {!loading && (analysis || tab === "probe" || tab === "evals") && (
                 <>
                   {tab === "overview" && <OverviewTab analysis={analysis} />}
                   {tab === "heatmap" && <HeatmapTab heatmap={heatmapData} analysis={analysis} />}
@@ -206,6 +208,7 @@ export default function App() {
                     />
                   )}
                   {tab === "probe" && <ProbeTab />}
+                  {tab === "evals" && <EvalTab />}
                 </>
               )}
             </>
