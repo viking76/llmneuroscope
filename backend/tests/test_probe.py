@@ -15,6 +15,7 @@ def client():
 
     from app.main import app
 
+    reset_probe()
     return TestClient(app)
 
 
@@ -138,3 +139,120 @@ def test_api_modify_requires_neuron(client):
         json={"layer": "layer_0.mlp", "action": "scale", "factor": 2.0},
     )
     assert response.status_code == 400
+
+
+def test_export_apply_roundtrip(tmp_path):
+    probe = MockBackend()
+    layer = "layer_0.mlp"
+    original = probe.layers[layer].copy()
+    probe.modify(layer, 1, "scale", 3.0)
+    modified = probe.layers[layer].copy()
+
+    export_path = tmp_path / "edit.safetensors"
+    result = probe.export_weights(export_path)
+    assert export_path.exists()
+    assert result["layers"] == [layer]
+
+    probe.modify(layer, None, "restore", None)
+    assert probe.layers[layer] == pytest.approx(original)
+
+    applied = probe.apply_weights(export_path)
+    assert applied["applied"] == [layer]
+    assert probe.layers[layer] == pytest.approx(modified)
+
+
+def test_export_requires_active_modifications(tmp_path):
+    probe = MockBackend()
+    with pytest.raises(ProbeError):
+        probe.export_weights(tmp_path / "nothing.safetensors")
+
+
+def test_apply_skips_unknown_layers(tmp_path):
+    from safetensors.numpy import save_file
+
+    import numpy as np
+
+    probe = MockBackend()
+    foreign = tmp_path / "foreign.safetensors"
+    save_file({"inconnue.mlp": np.zeros((4, 4), dtype=np.float32)}, str(foreign))
+    result = probe.apply_weights(foreign)
+    assert result["applied"] == []
+    assert result["skipped"] == ["inconnue.mlp"]
+
+
+def test_api_export_and_apply(client, tmp_path):
+    from app.services.probe import EXPORT_DIR
+
+    client.post(
+        "/api/probe/weights/modify",
+        json={"layer": "layer_3.mlp", "neuron": 0, "action": "scale", "factor": 1.5},
+    )
+    export = client.post(
+        "/api/probe/weights/export", json={"filename": "test-edit.safetensors"}
+    )
+    assert export.status_code == 200
+    assert (EXPORT_DIR / "test-edit.safetensors").exists()
+
+    client.post(
+        "/api/probe/weights/modify", json={"layer": "layer_3.mlp", "action": "restore"}
+    )
+    apply_response = client.post(
+        "/api/probe/weights/apply", json={"filename": "test-edit.safetensors"}
+    )
+    assert apply_response.status_code == 200
+    assert apply_response.json()["applied"] == ["layer_3.mlp"]
+
+    traversal = client.post(
+        "/api/probe/weights/export", json={"filename": "../evil.safetensors"}
+    )
+    assert traversal.status_code == 400
+
+    (EXPORT_DIR / "test-edit.safetensors").unlink()
+
+
+def test_status_includes_edit_log(client):
+    status = client.get("/api/probe/status").json()
+    assert "n_edits" in status
+    assert "edit_log" in status
+
+
+def test_mock_attention_entropy_shape_and_bounds():
+    probe = MockBackend()
+    result = probe.attention_entropy(["Le chat dort.", "Explique la photosynthèse."])
+    assert result["n_texts"] == 2
+    assert result["n_layers"] == 4
+    assert result["n_heads"] == 4
+    assert len(result["head_matrix"]) == 4
+    assert all(len(row) == 4 for row in result["head_matrix"])
+    for row in result["head_matrix"]:
+        for value in row:
+            assert 0.0 <= value <= result["max_entropy"]
+    for entry in result["top_heads"] + result["focused_heads"]:
+        assert 0.0 <= entry["ratio"] <= 1.0
+
+
+def test_mock_attention_deterministic():
+    probe = MockBackend()
+    first = probe.attention_entropy(["texte fixe"])
+    second = probe.attention_entropy(["texte fixe"])
+    assert first == second
+
+
+def test_mock_attention_causal_masking():
+    import math
+
+    probe = MockBackend()
+    result = probe.attention_entropy(["un deux trois quatre cinq six"])
+    assert result["sequence_length"] == 6
+    assert result["max_entropy"] == pytest.approx(math.log2(6), abs=1e-4)
+    assert result["layer_entropy"][0] < result["max_entropy"]
+
+
+def test_api_attention_endpoint(client):
+    response = client.post(
+        "/api/probe/attention", json={"texts": ["premier texte", "second texte"]}
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["n_layers"] == 4
+    assert len(body["layer_entropy"]) == 4

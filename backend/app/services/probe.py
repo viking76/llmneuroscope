@@ -1,18 +1,76 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 from collections import Counter
+from datetime import datetime, timezone
+from pathlib import Path
 
 import numpy as np
 
 DEAD_THRESHOLD = 1e-4
 HISTOGRAM_BINS = 16
 TOP_NEURONS = 5
+EXPORT_DIR = Path(__file__).resolve().parents[3] / "data" / "weight-edits"
 
 
 class ProbeError(RuntimeError):
     pass
+
+
+def resolve_export_path(filename: str | None) -> Path:
+    EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+    if filename is None:
+        filename = f"edit-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.safetensors"
+    candidate = (EXPORT_DIR / filename).resolve()
+    if EXPORT_DIR.resolve() not in candidate.parents:
+        raise ProbeError("Chemin de fichier non autorisé: exportez dans data/weight-edits/")
+    return candidate
+
+
+def edit_metadata(model_name: str, edit_log: list) -> dict:
+    return {
+        "model_name": model_name,
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "edit_log": json.dumps(edit_log),
+    }
+
+
+def attention_entropy_from_patterns(pattern: np.ndarray) -> np.ndarray:
+    probabilities = np.clip(pattern, 1e-12, 1.0)
+    return -(probabilities * np.log2(probabilities)).sum(axis=-1)
+
+
+def summarize_attention(patterns: list[np.ndarray]) -> dict:
+    entropies = [attention_entropy_from_patterns(p[0]) for p in patterns]
+    n_layers, n_heads = len(entropies), entropies[0].shape[0]
+    sequence_length = patterns[0].shape[-1]
+    max_entropy = float(np.log2(max(sequence_length, 2)))
+    head_matrix = [
+        [round(float(head_entropy.mean()), 4) for head_entropy in layer_entropy]
+        for layer_entropy in entropies
+    ]
+    layer_entropy = [round(float(np.mean(layer)), 4) for layer in head_matrix]
+    flat = [
+        {"layer": layer, "head": head, "entropy": head_matrix[layer][head],
+         "ratio": round(head_matrix[layer][head] / max_entropy, 4)}
+        for layer in range(n_layers)
+        for head in range(n_heads)
+    ]
+    top_heads = sorted(flat, key=lambda entry: entry["entropy"], reverse=True)[:TOP_NEURONS]
+    focused_heads = sorted(flat, key=lambda entry: entry["entropy"])[:TOP_NEURONS]
+    return {
+        "n_layers": n_layers,
+        "n_heads": n_heads,
+        "sequence_length": sequence_length,
+        "max_entropy": round(max_entropy, 4),
+        "layer_entropy": layer_entropy,
+        "head_matrix": head_matrix,
+        "diffuse_heads": [entry for entry in top_heads if entry["ratio"] > 0.9],
+        "top_heads": top_heads,
+        "focused_heads": focused_heads,
+    }
 
 
 class MockBackend:
@@ -28,6 +86,7 @@ class MockBackend:
         self.layers = {}
         self.snapshots = {}
         self.modified = False
+        self.edit_log = []
         for index in range(4):
             rng = np.random.default_rng(100 + index)
             self.layers[f"layer_{index}.mlp"] = rng.normal(0.0, 0.05, size=(self.d_model, self.d_model))
@@ -41,6 +100,8 @@ class MockBackend:
             "n_layers": len(self.layers),
             "modified": self.modified,
             "snapshot_available": bool(self.snapshots),
+            "n_edits": len(self.edit_log),
+            "edit_log": self.edit_log[-10:],
         }
 
     def layer_names(self) -> list[str]:
@@ -118,6 +179,9 @@ class MockBackend:
                 weights[index] = 0.0
             else:
                 raise ProbeError(f"Action inconnue: {action}")
+            self.edit_log.append(
+                {"layer": layer, "neuron": index, "action": action, "factor": factor}
+            )
             self.modified = True
             return {
                 "layer": layer,
@@ -134,7 +198,39 @@ class MockBackend:
             restored.append(snapshot_layer)
         self.snapshots = {}
         self.modified = False
+        self.edit_log.append({"action": "restore", "restored_layers": restored})
         return {"action": "restore", "restored_layers": restored}
+
+    def export_weights(self, path: Path) -> dict:
+        from safetensors.numpy import save_file
+
+        if not self.snapshots:
+            raise ProbeError("Aucune modification en cours à exporter")
+        modified_layers = sorted(self.snapshots)
+        save_file(
+            {layer: self.layers[layer] for layer in modified_layers},
+            str(path),
+            metadata=edit_metadata(self.model_name, self.edit_log),
+        )
+        return {"path": str(path), "layers": modified_layers, "n_edits": len(self.edit_log)}
+
+    def apply_weights(self, path: Path) -> dict:
+        from safetensors.numpy import load_file
+
+        tensors = load_file(str(path))
+        applied, skipped = [], []
+        for name, tensor in tensors.items():
+            if name in self.layers and self.layers[name].shape == tensor.shape:
+                if name not in self.snapshots:
+                    self.snapshots[name] = self.layers[name].copy()
+                self.layers[name] = tensor
+                self.modified = True
+                applied.append(name)
+            else:
+                skipped.append(name)
+        if applied:
+            self.edit_log.append({"action": "apply", "layers": applied, "from": str(path)})
+        return {"applied": applied, "skipped": skipped}
 
     def generate(self, prompt: str, max_new_tokens: int) -> dict:
         tokens = []
@@ -155,6 +251,29 @@ class MockBackend:
             "perplexity": round(float(np.exp(-np.mean(logprobs))), 4),
         }
 
+    def attention_entropy(self, texts: list[str]) -> dict:
+        patterns_per_text = []
+        for text in texts[:16]:
+            length = max(len(text.split()), 4)
+            rng = np.random.default_rng(
+                int(hashlib.sha256(text.encode()).hexdigest()[:8], 16)
+            )
+            logits = rng.normal(0.0, 1.5, size=(4, length, length))
+            mask = np.triu(np.ones((length, length), dtype=bool), k=1)
+            logits[:, mask] = -np.inf
+            logits -= logits.max(axis=-1, keepdims=True)
+            probabilities = np.exp(logits)
+            probabilities /= probabilities.sum(axis=-1, keepdims=True)
+            patterns_per_text.append(probabilities)
+        averaged = [
+            np.stack([patterns[layer] for patterns in patterns_per_text]).mean(axis=0)[None]
+            for layer in range(4)
+        ]
+        return {
+            "n_texts": len(texts[:16]),
+            **summarize_attention(averaged),
+        }
+
 
 class TorchBackend:
     """Backend réel: modèle open-weights chargé localement via transformers."""
@@ -172,6 +291,8 @@ class TorchBackend:
         self.device = None
         self.snapshots = {}
         self.modified = False
+        self.edit_log = []
+        self.bridge = None
 
     def load(self, model_name: str, device: str) -> dict:
         from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -200,6 +321,8 @@ class TorchBackend:
                 "n_layers": 0,
                 "modified": False,
                 "snapshot_available": False,
+                "n_edits": 0,
+                "edit_log": [],
             }
         return {
             "backend": self.backend,
@@ -209,6 +332,8 @@ class TorchBackend:
             "n_layers": len(self.layer_names()),
             "modified": self.modified,
             "snapshot_available": bool(self.snapshots),
+            "n_edits": len(self.edit_log),
+            "edit_log": self.edit_log[-10:],
         }
 
     def layer_names(self) -> list[str]:
@@ -303,6 +428,9 @@ class TorchBackend:
                     weight[index] = 0.0
                 else:
                     raise ProbeError(f"Action inconnue: {action}")
+            self.edit_log.append(
+                {"layer": layer, "neuron": index, "action": action, "factor": factor}
+            )
             self.modified = True
             return {
                 "layer": layer,
@@ -319,7 +447,85 @@ class TorchBackend:
         restored = list(self.snapshots)
         self.snapshots = {}
         self.modified = False
+        self.edit_log.append({"action": "restore", "restored_layers": restored})
         return {"action": "restore", "restored_layers": restored}
+
+    def export_weights(self, path: Path) -> dict:
+        from safetensors.torch import save_file
+
+        if not self.snapshots:
+            raise ProbeError("Aucune modification en cours à exporter")
+        modified_layers = sorted(self.snapshots)
+        tensors = {
+            layer: self.model.get_submodule(layer).weight.detach().cpu().contiguous()
+            for layer in modified_layers
+        }
+        save_file(tensors, str(path), metadata=edit_metadata(self.model_name, self.edit_log))
+        return {"path": str(path), "layers": modified_layers, "n_edits": len(self.edit_log)}
+
+    def apply_weights(self, path: Path) -> dict:
+        from safetensors.torch import load_file
+
+        self._require_loaded()
+        tensors = load_file(str(path), device=self.device)
+        applied, skipped = [], []
+        with self.torch.no_grad():
+            for name, tensor in tensors.items():
+                try:
+                    weight = self.model.get_submodule(name).weight
+                except AttributeError:
+                    skipped.append(name)
+                    continue
+                if weight.shape != tensor.shape:
+                    skipped.append(name)
+                    continue
+                if name not in self.snapshots:
+                    self.snapshots[name] = weight.detach().clone()
+                weight.copy_(tensor.to(weight.dtype))
+                self.modified = True
+                applied.append(name)
+        if applied:
+            self.edit_log.append({"action": "apply", "layers": applied, "from": str(path)})
+        return {"applied": applied, "skipped": skipped}
+
+    def _get_bridge(self):
+        self._require_loaded()
+        if self.bridge is None or self.bridge.cfg.model_name != self.model_name:
+            from transformer_lens import TransformerBridge
+
+            self.bridge = TransformerBridge.boot_transformers(
+                self.model_name, device=self.device, dtype=self.torch.float32
+            )
+            self.bridge.enable_compatibility_mode()
+        return self.bridge
+
+    def attention_entropy(self, texts: list[str]) -> dict:
+        bridge = self._get_bridge()
+        patterns_per_text = []
+        for text in texts[:16]:
+            _, cache = bridge.run_with_cache(
+                text, names_filter=lambda name: name.endswith("hook_pattern")
+            )
+            patterns = [
+                value.float().cpu().numpy()
+                for key, value in sorted(cache.items())
+                if key.endswith("hook_pattern")
+            ]
+            if not patterns:
+                raise ProbeError(
+                    "Aucun pattern d'attention capturé — modèle incompatible avec TransformerLens"
+                )
+            patterns_per_text.append(patterns)
+        n_layers = len(patterns_per_text[0])
+        averaged = [
+            np.stack([patterns[layer] for patterns in patterns_per_text]).mean(axis=0)
+            for layer in range(n_layers)
+        ]
+        return {
+            "n_texts": len(texts[:16]),
+            "engine": "transformer-lens",
+            **summarize_attention(averaged),
+        }
 
     def generate(self, prompt: str, max_new_tokens: int) -> dict:
         self._require_loaded()

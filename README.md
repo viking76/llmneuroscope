@@ -1,114 +1,153 @@
+<div align="center">
+
 # 🔬 LLM Neuroscope
 
-Outil d'analyse statistique pour détecter les problèmes d'un LLM via l'étude de son
-« activité neuronale » : convergence entre runs, dérive, anomalies et points bloquants,
-avec un dashboard graphique complet.
+**Détecter les problèmes d'un LLM en observant son activité neuronale — et intervenir dessus.**
 
-## Fonctionnalités
+Convergence · Dérive · Anomalies · Points bloquants · Poids & activations
 
-- **Import de données locales** : CSV, JSON, JSONL (logs d'inférence, traces, benchmarks)
-  avec détection automatique des colonnes (`model`, `tokens`, `logprobs`, `latency_ms`, `run`, `prompt_id`…).
-- **Métriques d'activité neuronale** :
-  - entropie des tokens (globale et par position), taille de vocabulaire
-  - perplexité et statistiques de log-probs (moyenne, σ, p05, p95)
-  - taux de dégénérescence (boucles de répétition), ratio de répétition
-  - dérive entre runs (divergence de Jensen-Shannon)
-- **Détection de points bloquants** : effondrement de logprobs par position,
-  instabilité de position (variance anormale entre enregistrements), pics d'entropie.
-- **Détection d'anomalies** : boucles de répétition, effondrements de logprobs,
-  longueurs anormales, pics de latence — avec sévérité et z-scores.
-- **Comparaison de modèles** : tableau de deltas entre deux versions, verdict
-  automatique (stable / vigilance / régression / amélioration).
-- **Sonde neuronale** (`/api/probe`) : pour un modèle open-weights exécuté
-  localement — test avec des textes, activité neuronale par couche (neurones
-  morts, top neurones), inspection des poids (stats, histogramme), modification
-  réversible de neurones (scale / zero / restore) et génération instrumentée.
-  Voir [docs/agent-api.md](docs/agent-api.md) pour piloter la sonde depuis une
-  autre IA.
-- **Dashboard React** : cartes de métriques, courbes, heatmap position × run,
-  journal d'anomalies filtrable, comparaison côte à côte, onglet Neurones & poids.
+![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/Backend-FastAPI-009688?logo=fastapi&logoColor=white)
+![React](https://img.shields.io/badge/Frontend-React-61DAFB?logo=react&logoColor=black)
+![Tests](https://img.shields.io/badge/Tests-31%2F31-success)
+![License](https://img.shields.io/badge/Licence-à%20définir-orange)
 
-## Structure
+</div>
+
+---
+
+## 📸 Aperçu
+
+| Vue d'ensemble | Activité neuronale |
+|:---:|:---:|
+| ![Vue d'ensemble](docs/screenshots/01-overview.png) | ![Heatmap](docs/screenshots/02-heatmap.png) |
+| **Anomalies & points bloquants** | **Comparaison de modèles** |
+| ![Anomalies](docs/screenshots/03-anomalies.png) | ![Comparaison](docs/screenshots/04-compare.png) |
+
+## ✨ Fonctionnalités
+
+### 📊 Analyse statistique de logs (CSV / JSON / JSONL)
+
+| Capacité | Détail |
+|---|---|
+| **Ingestion universelle** | Détection automatique des colonnes et alias (`model`, `tokens`, `logprobs`, `run`…) |
+| **Convergence** | Entropie par run, dérive inter-runs (divergence de Jensen-Shannon) |
+| **Santé du modèle** | Perplexité, entropie des tokens, vocabulaire, longueur, latence (p95) |
+| **Dégénérescence** | Détection des boucles de répétition par n-grammes |
+| **Points bloquants** | Effondrement de logprobs, instabilité de position, pics d'entropie — par position |
+| **Anomalies** | Z-scores + sévérité (haute / moyenne / basse) sur logprobs, longueurs, latences |
+| **Comparaison de versions** | Deltas métrique par métrique + verdict automatique (stable / vigilance / régression / amélioration) |
+
+### 🧠 Sonde neuronale (modèles open-weights locaux)
+
+| Capacité | Endpoint |
+|---|---|
+| Charger un modèle local | `POST /api/probe/load` |
+| Tester avec des textes → activité par couche (neurones morts, top neurones) | `POST /api/probe/analyze-texts` |
+| Inspecter les poids (stats, histogramme, poids morts) | `GET /api/probe/weights/{layer}` |
+| Modifier un neurone (×facteur, mise à zéro) — **réversible** | `POST /api/probe/weights/modify` |
+| Exporter / réappliquer les modifications | `POST /api/probe/weights/export` · `POST /api/probe/weights/apply` |
+| **Entropie d'attention** par couche × tête (TransformerLens) | `POST /api/probe/attention` |
+| Génération instrumentée (tokens + logprobs + perplexité) | `POST /api/probe/generate` |
+
+> ⚠️ **Important** : les poids et activations ne sont accessibles que pour un modèle
+> open-weights exécuté localement (GPT-2, Pythia, TinyLlama, Mistral-7B…). Les APIs
+> fermées (Mistral API, OpenAI…) n'exposent ni poids ni activations — pour elles,
+> seule l'analyse de logs s'applique.
+
+## 🏗️ Architecture
+
+```mermaid
+flowchart LR
+    A[Logs CSV / JSON / JSONL] --> B[API FastAPI]
+    C[Textes de test] --> D[Sonde neuronale]
+    D --> E[Modèle open-weights local\ntransformers + torch]
+    D <--> F[safetensors\nexport / apply des poids]
+    B --> G[Moteur de métriques\nentropie · JS · z-scores · n-grammes]
+    G --> H[Dashboard React\nRecharts]
+    D --> H
+```
 
 ```
-backend/          API FastAPI (ingestion, métriques, anomalies, comparaison, sonde neuronale)
-frontend/         Dashboard React + Vite + Recharts
-scripts/          Générateur de dataset d'exemple + aperçus de l'interface
-data/             Datasets d'exemple générés
-docs/             Guide de pilotage par agent (agent-api.md), aperçus
+backend/              API FastAPI
+├── app/services/     ingestion · metrics · comparison · probe (mock + torch)
+├── app/routers/      datasets · analysis · probe
+└── tests/            31 tests pytest
+frontend/             Dashboard React + Vite + Recharts (5 onglets)
+scripts/              generate_sample_data.py · render_ui_previews.py
+data/                 sample_runs.jsonl · weight-edits/ (exports safetensors)
+docs/                 agent-api.md (pilotage par IA) · screenshots/
 ```
 
-### Sonde neuronale (poids et activations)
-
-Pour lire et modifier les poids, un modèle open-weights local est requis :
+## 🚀 Démarrage rapide
 
 ```bash
-pip install -r backend/requirements-probe.txt   # torch + transformers
-```
-
-Sans torch, la sonde tourne en mode `mock` (simulation déterministe) pour tester
-l'intégration. Endpoints principaux : `POST /api/probe/load`,
-`POST /api/probe/analyze-texts`, `GET /api/probe/weights/{layer}`,
-`POST /api/probe/weights/modify` (scale / zero / restore), `POST /api/probe/generate`.
-Détails et session type : [docs/agent-api.md](docs/agent-api.md).
-
-## Démarrage rapide
-
-### Backend
-
-```bash
+# Backend
 cd backend
 pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
-```
 
-Documentation interactive : http://localhost:8000/docs
-
-### Frontend
-
-```bash
+# Frontend (autre terminal)
 cd frontend
 npm install
-npm run dev
-```
+npm run dev        # → http://localhost:3000
 
-Dashboard : http://localhost:3000 (proxy automatique vers le backend sur le port 8000).
-
-### Dataset d'exemple
-
-```bash
+# Dataset de démonstration (2 modèles : un sain, un dégradé)
 python scripts/generate_sample_data.py
 ```
 
-Génère `data/sample_runs.jsonl` : 240 enregistrements, 2 modèles (`stable-v1` sain,
-`degraded-v2` avec effondrement de logprobs après la position 8, boucles de répétition
-et pics de latence) sur 3 runs. Importez ce fichier dans le dashboard pour voir les
-détections en action.
-
-### Tests
+Pour la sonde neuronale avec un vrai modèle :
 
 ```bash
-cd backend
-python -m pytest tests -q
+pip install -r backend/requirements-probe.txt   # torch + transformers + safetensors
+# puis onglet « Neurones & poids » → charger gpt2, EleutherAI/pythia-70m…
 ```
 
-## Format des données attendues
+## 🤖 Pilotage par une autre IA
 
-Chaque enregistrement représente une génération du modèle :
+LLM Neuroscope est conçu pour être **piloté par un agent** : toutes les fonctions
+sont des endpoints JSON documentés dans **[docs/agent-api.md](docs/agent-api.md)**
+(session type : charger → tester avec textes → lire les poids → modifier →
+mesurer → restaurer, avec bonnes pratiques).
 
-| Champ         | Alias acceptés                                   | Requis |
-| ------------- | ------------------------------------------------ | ------ |
-| `model`       | `model_name`, `model_id`, `model_version`        | sinon `unknown` |
-| `tokens`      | `token_ids`, `output_tokens`, `generated_tokens` | sinon dérivé de `output` |
-| `logprobs`    | `token_logprobs`, `log_probs`                    | optionnel |
-| `run`         | `run_id`, `seed`, `iteration`, `trial`           | sinon 1 |
-| `prompt_id`   | `sample_id`, `example_id`, `case_id`             | sinon index |
-| `latency_ms`  | `latency`, `duration_ms`, `time_ms`              | optionnel |
-| `output`      | `response`, `completion`, `text`, `answer`       | optionnel |
-| `timestamp`   | `created_at`, `datetime`, `date`                 | optionnel |
+## 🧪 Tests
 
-Exemple JSONL :
-
-```json
-{"model": "mistral-small", "prompt_id": "p-001", "run": 1, "tokens": ["le", "chat"], "logprobs": [-0.31, -0.74], "latency_ms": 220}
+```bash
+cd backend && python -m pytest tests -q    # 31 tests
+cd frontend && npm run build               # build Vite
+python scripts/render_ui_previews.py       # aperçus PNG depuis l'API réelle
 ```
+
+Validé en conditions réelles : `hf-internal-testing/tiny-random-gpt2` (~5 Mo) et
+`EleutherAI/pythia-70m` (entraîné) — modification d'un neurone → effet mesuré sur
+la génération → restauration bit-à-bit.
+
+## 🧩 Écosystème & intégrations candidates
+
+Veille sur l'écosystème open source — bibliothèques repérées pour enrichir l'outil :
+
+| Bibliothèque | Ce qu'elle apporterait | Priorité |
+|---|---|---|
+| [safetensors](https://github.com/huggingface/safetensors) (Hugging Face) | ✅ **Intégré** — export/import des poids modifiés, format sûr et standard | fait |
+| [TransformerLens](https://github.com/TransformerLensOrg/TransformerLens) | ✅ **Intégré** — entropie d'attention par couche × tête via `TransformerBridge` | fait |
+| [nnsight](https://github.com/nnsight/nnsight) | Intervention dans les internals de modèles géants (tracer, éditer les activations à la volée) | haute |
+| Activation patching via TransformerLens | Comparer les activations avant/après modification de poids, position par position | haute |
+| [Captum](https://github.com/pytorch/captum) / [SHAP](https://github.com/shap/shap) | Attribution d'importance par token / neurone | moyenne |
+| [DeepEval](https://github.com/confident-ai/deepeval) | Évals de qualité (G-Eval, hallucination, pertinence) complémentaires des métriques internes | moyenne |
+| [Langfuse](https://github.com/langfuse/langfuse) | Observabilité des traces en production à connecter aux analyses hors-ligne | moyenne |
+| [lm-evaluation-harness](https://github.com/EleutherAI/lm-evaluation-harness) | Benchmarks standardisés comparables entre versions | basse |
+
+## 🗺️ Feuille de route
+
+- [x] Entropie d'attention par couche × tête (via TransformerLens)
+- [ ] Activation patching avant/après modification automatisé
+- [ ] Export PDF/CSV des rapports d'analyse
+- [ ] Seuils d'alerte configurables par modèle
+- [ ] Support GGUF / llama.cpp pour les modèles quantisés
+- [ ] Mode multi-modèles (>2) dans la comparaison
+
+---
+
+<div align="center">
+<sub>Construit avec FastAPI · React · Recharts · safetensors — les experts : 1 architecte ML, 1 dev backend, 1 dev frontend 🤖</sub>
+</div>
