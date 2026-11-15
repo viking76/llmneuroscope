@@ -59,7 +59,44 @@ Statistiques : forme, moyenne, σ, norme, ratio de poids morts, histogramme
 (16 classes) et aperçu des 8 premières valeurs. Une couche avec beaucoup de
 poids morts ou une norme effondrée est candidate à intervention.
 
-### 5. Modifier un neurone si nécessaire
+### 5. Analyser l'attention (par couche × tête)
+
+```http
+POST /api/probe/attention
+{"texts": ["Le chat dort sur le tapis.", "Explique la photosynthèse."]}
+```
+
+Réponse :
+
+```json
+{
+  "engine": "transformer-lens",
+  "n_layers": 6, "n_heads": 8, "sequence_length": 9,
+  "max_entropy": 3.1699,
+  "layer_entropy": [1.4024, 1.4612, 1.3556, 1.2167, 0.7592, 0.7975],
+  "head_matrix": [[1.4, 1.38, ...], ...],
+  "diffuse_heads": [],
+  "top_heads": [...],
+  "focused_heads": [{"layer": 2, "head": 1, "entropy": 0.5, "ratio": 0.1258}]
+}
+```
+
+- `entropy` : entropie de Shannon des probabilités d'attention d'une tête, en
+  bits. `ratio = entropy / log2(sequence_length)` : 1.0 = attention uniforme
+  (diffuse), proche de 0 = attention concentrée sur peu de tokens.
+- `layer_entropy` : profil par couche. Une décroissance en fin de réseau
+  (focalisation) est normale ; un profil plat ou une entropie quasi maximale
+  partout peut signaler un modèle peu spécialisé.
+- `diffuse_heads` : têtes avec `ratio > 0.9` (quasi uniformes).
+- `focused_heads` : les têtes les plus concentrées, candidates pour
+  l'interprétation (têtes de position, d'induction…).
+
+Moteur : **TransformerLens** (`TransformerBridge`) côté torch ; simulation
+déterministe côté mock. Cette analyse est **en lecture seule et indépendante** :
+elle utilise sa propre instance du modèle (bridge), donc elle ne reflète pas les
+modifications de poids faites via `/weights/modify`.
+
+### 6. Modifier un neurone si nécessaire
 
 ```http
 POST /api/probe/weights/modify
@@ -70,11 +107,21 @@ Actions : `scale` (multiplie la ligne du neurone par `factor`), `zero`
 (désactive le neurone), `restore` (restaure les valeurs d'origine de toutes les
 couches modifiées). Un instantané est pris automatiquement avant la première
 modification — **toute modification est réversible** tant que le process tourne.
-Les modifications ne sont pas persistées sur disque.
-
 Réponse : statistiques avant/après pour vérifier l'effet.
 
-### 6. Vérifier l'effet après modification
+### Persister les modifications (safetensors)
+
+```http
+POST /api/probe/weights/export {"filename": "mon-correctif.safetensors"}
+POST /api/probe/weights/apply  {"filename": "mon-correctif.safetensors"}
+```
+
+`export` écrit les couches actuellement modifiées dans
+`data/weight-edits/<filename>` (format safetensors + journal JSON des éditions) ;
+`apply` recharge un fichier exporté dans le modèle courant. Les chemins sont
+confinés à `data/weight-edits/` (toute traversée de répertoire est rejetée).
+
+### 7. Vérifier l'effet après modification
 
 ```http
 POST /api/probe/analyze-texts
@@ -99,3 +146,6 @@ POST /api/probe/weights/modify
 5. Pour une analyse de convergence entre versions, exporter des logs (JSONL avec
    `model`, `tokens`, `logprobs`, `run`) et utiliser `POST /api/datasets` +
    `GET /api/datasets/{id}/compare`.
+6. Combiner `analyze-texts` (activations), `attention` (couches × têtes) et
+   `weights/{layer}` (poids) avant toute modification : un blocage se manifeste
+   rarement sur une seule de ces trois vues.

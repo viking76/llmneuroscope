@@ -604,6 +604,30 @@ select {
   margin-top: 8px;
 }
 
+.attention-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(22px, 1fr));
+  gap: 3px;
+  max-width: 420px;
+  margin: 12px 0;
+}
+
+.attention-cell {
+  width: 22px;
+  height: 22px;
+  border-radius: 3px;
+}
+
+.heat-lists {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.heat-lists .section-title {
+  margin-bottom: 6px;
+}
+
 input {
   background: var(--bg);
   border: 1px solid var(--border);

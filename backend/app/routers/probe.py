@@ -69,6 +69,20 @@ async def analyze_texts(request: AnalyzeTextsRequest):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.post("/attention")
+async def attention(request: AnalyzeTextsRequest):
+    try:
+        return get_probe().attention_entropy(request.texts)
+    except ProbeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Analyse d'attention impossible ({exc}). "
+            "Installez transformer-lens (backend/requirements-probe.txt).",
+        ) from exc
+
+
 @router.get("/layers")
 async def layers():
     probe = get_probe()

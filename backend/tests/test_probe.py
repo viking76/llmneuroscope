@@ -214,3 +214,45 @@ def test_status_includes_edit_log(client):
     status = client.get("/api/probe/status").json()
     assert "n_edits" in status
     assert "edit_log" in status
+
+
+def test_mock_attention_entropy_shape_and_bounds():
+    probe = MockBackend()
+    result = probe.attention_entropy(["Le chat dort.", "Explique la photosynthèse."])
+    assert result["n_texts"] == 2
+    assert result["n_layers"] == 4
+    assert result["n_heads"] == 4
+    assert len(result["head_matrix"]) == 4
+    assert all(len(row) == 4 for row in result["head_matrix"])
+    for row in result["head_matrix"]:
+        for value in row:
+            assert 0.0 <= value <= result["max_entropy"]
+    for entry in result["top_heads"] + result["focused_heads"]:
+        assert 0.0 <= entry["ratio"] <= 1.0
+
+
+def test_mock_attention_deterministic():
+    probe = MockBackend()
+    first = probe.attention_entropy(["texte fixe"])
+    second = probe.attention_entropy(["texte fixe"])
+    assert first == second
+
+
+def test_mock_attention_causal_masking():
+    import math
+
+    probe = MockBackend()
+    result = probe.attention_entropy(["un deux trois quatre cinq six"])
+    assert result["sequence_length"] == 6
+    assert result["max_entropy"] == pytest.approx(math.log2(6), abs=1e-4)
+    assert result["layer_entropy"][0] < result["max_entropy"]
+
+
+def test_api_attention_endpoint(client):
+    response = client.post(
+        "/api/probe/attention", json={"texts": ["premier texte", "second texte"]}
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["n_layers"] == 4
+    assert len(body["layer_entropy"]) == 4

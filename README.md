@@ -47,6 +47,7 @@ Convergence · Dérive · Anomalies · Points bloquants · Poids & activations
 | Inspecter les poids (stats, histogramme, poids morts) | `GET /api/probe/weights/{layer}` |
 | Modifier un neurone (×facteur, mise à zéro) — **réversible** | `POST /api/probe/weights/modify` |
 | Exporter / réappliquer les modifications | `POST /api/probe/weights/export` · `POST /api/probe/weights/apply` |
+| **Entropie d'attention** par couche × tête (TransformerLens) | `POST /api/probe/attention` |
 | Génération instrumentée (tokens + logprobs + perplexité) | `POST /api/probe/generate` |
 
 > ⚠️ **Important** : les poids et activations ne sont accessibles que pour un modèle
@@ -128,17 +129,17 @@ Veille sur l'écosystème open source — bibliothèques repérées pour enrichi
 | Bibliothèque | Ce qu'elle apporterait | Priorité |
 |---|---|---|
 | [safetensors](https://github.com/huggingface/safetensors) (Hugging Face) | ✅ **Intégré** — export/import des poids modifiés, format sûr et standard | fait |
-| [TransformerLens](https://github.com/TransformerLensOrg/TransformerLens) | Activation patching, attribution logit, circuits — le standard de l'interprétabilité mécanique | haute |
+| [TransformerLens](https://github.com/TransformerLensOrg/TransformerLens) | ✅ **Intégré** — entropie d'attention par couche × tête via `TransformerBridge` | fait |
 | [nnsight](https://github.com/nnsight/nnsight) | Intervention dans les internals de modèles géants (tracer, éditer les activations à la volée) | haute |
+| Activation patching via TransformerLens | Comparer les activations avant/après modification de poids, position par position | haute |
 | [Captum](https://github.com/pytorch/captum) / [SHAP](https://github.com/shap/shap) | Attribution d'importance par token / neurone | moyenne |
 | [DeepEval](https://github.com/confident-ai/deepeval) | Évals de qualité (G-Eval, hallucination, pertinence) complémentaires des métriques internes | moyenne |
 | [Langfuse](https://github.com/langfuse/langfuse) | Observabilité des traces en production à connecter aux analyses hors-ligne | moyenne |
 | [lm-evaluation-harness](https://github.com/EleutherAI/lm-evaluation-harness) | Benchmarks standardisés comparables entre versions | basse |
-| [einops](https://github.com/arogozhnikov/einops) | Manipulation de tenseurs lisible dans les futurs modules d'analyse | basse |
 
 ## 🗺️ Feuille de route
 
-- [ ] Attention entropy + inspection des têtes d'attention (via TransformerLens)
+- [x] Entropie d'attention par couche × tête (via TransformerLens)
 - [ ] Activation patching avant/après modification automatisé
 - [ ] Export PDF/CSV des rapports d'analyse
 - [ ] Seuils d'alerte configurables par modèle

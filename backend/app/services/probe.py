@@ -37,6 +37,42 @@ def edit_metadata(model_name: str, edit_log: list) -> dict:
     }
 
 
+def attention_entropy_from_patterns(pattern: np.ndarray) -> np.ndarray:
+    probabilities = np.clip(pattern, 1e-12, 1.0)
+    return -(probabilities * np.log2(probabilities)).sum(axis=-1)
+
+
+def summarize_attention(patterns: list[np.ndarray]) -> dict:
+    entropies = [attention_entropy_from_patterns(p[0]) for p in patterns]
+    n_layers, n_heads = len(entropies), entropies[0].shape[0]
+    sequence_length = patterns[0].shape[-1]
+    max_entropy = float(np.log2(max(sequence_length, 2)))
+    head_matrix = [
+        [round(float(head_entropy.mean()), 4) for head_entropy in layer_entropy]
+        for layer_entropy in entropies
+    ]
+    layer_entropy = [round(float(np.mean(layer)), 4) for layer in head_matrix]
+    flat = [
+        {"layer": layer, "head": head, "entropy": head_matrix[layer][head],
+         "ratio": round(head_matrix[layer][head] / max_entropy, 4)}
+        for layer in range(n_layers)
+        for head in range(n_heads)
+    ]
+    top_heads = sorted(flat, key=lambda entry: entry["entropy"], reverse=True)[:TOP_NEURONS]
+    focused_heads = sorted(flat, key=lambda entry: entry["entropy"])[:TOP_NEURONS]
+    return {
+        "n_layers": n_layers,
+        "n_heads": n_heads,
+        "sequence_length": sequence_length,
+        "max_entropy": round(max_entropy, 4),
+        "layer_entropy": layer_entropy,
+        "head_matrix": head_matrix,
+        "diffuse_heads": [entry for entry in top_heads if entry["ratio"] > 0.9],
+        "top_heads": top_heads,
+        "focused_heads": focused_heads,
+    }
+
+
 class MockBackend:
     """Backend de simulation déterministe, pour tester sans torch ni modèle réel."""
 
@@ -215,6 +251,29 @@ class MockBackend:
             "perplexity": round(float(np.exp(-np.mean(logprobs))), 4),
         }
 
+    def attention_entropy(self, texts: list[str]) -> dict:
+        patterns_per_text = []
+        for text in texts[:16]:
+            length = max(len(text.split()), 4)
+            rng = np.random.default_rng(
+                int(hashlib.sha256(text.encode()).hexdigest()[:8], 16)
+            )
+            logits = rng.normal(0.0, 1.5, size=(4, length, length))
+            mask = np.triu(np.ones((length, length), dtype=bool), k=1)
+            logits[:, mask] = -np.inf
+            logits -= logits.max(axis=-1, keepdims=True)
+            probabilities = np.exp(logits)
+            probabilities /= probabilities.sum(axis=-1, keepdims=True)
+            patterns_per_text.append(probabilities)
+        averaged = [
+            np.stack([patterns[layer] for patterns in patterns_per_text]).mean(axis=0)[None]
+            for layer in range(4)
+        ]
+        return {
+            "n_texts": len(texts[:16]),
+            **summarize_attention(averaged),
+        }
+
 
 class TorchBackend:
     """Backend réel: modèle open-weights chargé localement via transformers."""
@@ -233,6 +292,7 @@ class TorchBackend:
         self.snapshots = {}
         self.modified = False
         self.edit_log = []
+        self.bridge = None
 
     def load(self, model_name: str, device: str) -> dict:
         from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -427,6 +487,45 @@ class TorchBackend:
         if applied:
             self.edit_log.append({"action": "apply", "layers": applied, "from": str(path)})
         return {"applied": applied, "skipped": skipped}
+
+    def _get_bridge(self):
+        self._require_loaded()
+        if self.bridge is None or self.bridge.cfg.model_name != self.model_name:
+            from transformer_lens import TransformerBridge
+
+            self.bridge = TransformerBridge.boot_transformers(
+                self.model_name, device=self.device, dtype=self.torch.float32
+            )
+            self.bridge.enable_compatibility_mode()
+        return self.bridge
+
+    def attention_entropy(self, texts: list[str]) -> dict:
+        bridge = self._get_bridge()
+        patterns_per_text = []
+        for text in texts[:16]:
+            _, cache = bridge.run_with_cache(
+                text, names_filter=lambda name: name.endswith("hook_pattern")
+            )
+            patterns = [
+                value.float().cpu().numpy()
+                for key, value in sorted(cache.items())
+                if key.endswith("hook_pattern")
+            ]
+            if not patterns:
+                raise ProbeError(
+                    "Aucun pattern d'attention capturé — modèle incompatible avec TransformerLens"
+                )
+            patterns_per_text.append(patterns)
+        n_layers = len(patterns_per_text[0])
+        averaged = [
+            np.stack([patterns[layer] for patterns in patterns_per_text]).mean(axis=0)
+            for layer in range(n_layers)
+        ]
+        return {
+            "n_texts": len(texts[:16]),
+            "engine": "transformer-lens",
+            **summarize_attention(averaged),
+        }
 
     def generate(self, prompt: str, max_new_tokens: int) -> dict:
         self._require_loaded()

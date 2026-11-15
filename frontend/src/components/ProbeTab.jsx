@@ -43,6 +43,7 @@ export default function ProbeTab() {
   const [busy, setBusy] = useState(false);
   const [exportResult, setExportResult] = useState(null);
   const [applyFilename, setApplyFilename] = useState("");
+  const [attentionResult, setAttentionResult] = useState(null);
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -141,6 +142,16 @@ export default function ProbeTab() {
       }));
     });
 
+  const analyzeAttention = () =>
+    run(async () => {
+      const list = texts.split("\n").map((t) => t.trim()).filter(Boolean);
+      setAttentionResult(await probeRequest("/attention", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ texts: list }),
+      }));
+    });
+
   const generateText = () =>
     run(async () => {
       setGeneration(await probeRequest("/generate", {
@@ -224,6 +235,62 @@ export default function ProbeTab() {
                   ))}
                 </tbody>
               </table>
+            )}
+          </div>
+
+          <div className="chart-card">
+            <h3>Attention (TransformerLens)</h3>
+            <p className="muted small">
+              Entropie d'attention par couche et par tête : une tête « diffuse »
+              (ratio proche de 1) regarde tout le contexte, une tête « focalisée »
+              (ratio proche de 0) suit un motif précis.
+            </p>
+            <button className="btn primary small" onClick={analyzeAttention} disabled={busy}>
+              Analyser l'attention
+            </button>
+            {attentionResult && (
+              <div style={{ marginTop: 12 }}>
+                <p className="muted small">
+                  {attentionResult.n_layers} couches × {attentionResult.n_heads} têtes ·
+                  séquence {attentionResult.sequence_length} tokens · entropie max{" "}
+                  {attentionResult.max_entropy} bits
+                </p>
+                <div className="attention-grid">
+                  {attentionResult.head_matrix.map((row, layer) =>
+                    row.map((value, head) => {
+                      const ratio = value / attentionResult.max_entropy;
+                      return (
+                        <div
+                          key={`${layer}-${head}`}
+                          className="attention-cell"
+                          style={{
+                            background: `rgb(${Math.round(40 + ratio * 215)}, ${Math.round(60 + (1 - ratio) * 40)}, ${Math.round(120 + (1 - ratio) * 80)})`,
+                          }}
+                          title={`Couche ${layer} · tête ${head} · entropie ${value} bits (${(ratio * 100).toFixed(0)} %)`}
+                        />
+                      );
+                    })
+                  )}
+                </div>
+                <div className="heat-lists">
+                  <div>
+                    <p className="section-title small">Têtes les plus diffuses</p>
+                    {attentionResult.top_heads.slice(0, 3).map((entry) => (
+                      <p key={`${entry.layer}-${entry.head}`} className="muted small">
+                        Couche {entry.layer} · tête {entry.head} — {entry.entropy} bits ({(entry.ratio * 100).toFixed(0)} %)
+                      </p>
+                    ))}
+                  </div>
+                  <div>
+                    <p className="section-title small">Têtes les plus focalisées</p>
+                    {attentionResult.focused_heads.slice(0, 3).map((entry) => (
+                      <p key={`${entry.layer}-${entry.head}`} className="muted small">
+                        Couche {entry.layer} · tête {entry.head} — {entry.entropy} bits ({(entry.ratio * 100).toFixed(0)} %)
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              </div>
             )}
           </div>
 
