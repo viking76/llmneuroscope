@@ -10,3 +10,5 @@ frontend/dist/
 .DS_Store
 *.log
 data/langfuse-exports/
+data/weight-edits/*
+!data/weight-edits/.gitkeep

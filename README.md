@@ -119,14 +119,14 @@ mesurer → restaurer, avec bonnes pratiques).
 ## 🧪 Tests
 
 ```bash
-cd backend && python -m pytest tests -q    # 31 tests
+cd backend && python -m pytest tests -q    # 70 tests
 cd frontend && npm run build               # build Vite
 python scripts/render_ui_previews.py       # aperçus PNG depuis l'API réelle
 ```
 
-Validé en conditions réelles : `hf-internal-testing/tiny-random-gpt2` (~5 Mo) et
-`EleutherAI/pythia-70m` (entraîné) — modification d'un neurone → effet mesuré sur
-la génération → restauration bit-à-bit.
+Validé en conditions réelles : `hf-internal-testing/tiny-random-gpt2` (~5 Mo),
+`EleutherAI/pythia-70m` (entraîné) et `Qwen/Qwen2.5-0.5B-Instruct-GGUF` (q8_0) —
+modification d'un neurone → effet mesuré sur la génération → restauration bit-à-bit.
 
 ## 🧩 Écosystème & intégrations candidates
 
