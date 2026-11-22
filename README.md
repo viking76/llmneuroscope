@@ -18,11 +18,11 @@ Convergence · Dérive · Anomalies · Points bloquants · Poids & activations
 
 ## 📸 Aperçu
 
-| Vue d'ensemble | Activité neuronale |
-|:---:|:---:|
-| ![Vue d'ensemble](docs/screenshots/01-overview.png) | ![Heatmap](docs/screenshots/02-heatmap.png) |
-| **Anomalies & points bloquants** | **Comparaison de modèles** |
-| ![Anomalies](docs/screenshots/03-anomalies.png) | ![Comparaison](docs/screenshots/04-compare.png) |
+| Vue d'ensemble | Activité neuronale | Anomalies & points bloquants |
+|:---:|:---:|:---:|
+| ![Vue d'ensemble](docs/screenshots/01-overview.png) | ![Heatmap](docs/screenshots/02-heatmap.png) | ![Anomalies](docs/screenshots/03-anomalies.png) |
+| **Comparaison de modèles** | **Sonde neuronale** | **Évals & benchmarks** |
+| ![Comparaison](docs/screenshots/04-compare.png) | ![Sonde neuronale](docs/screenshots/05-probe.png) | ![Évals](docs/screenshots/06-evals.png) |
 
 ## ✨ Fonctionnalités
 

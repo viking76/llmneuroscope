@@ -52,7 +52,17 @@ VERDICT_COLORS = {
 }
 
 
+try:
+    import reportlab
+
+    FONT_PATH = Path(reportlab.__file__).parent / "fonts" / "Vera.ttf"
+except Exception:
+    FONT_PATH = None
+
+
 def font(size):
+    if FONT_PATH and FONT_PATH.exists():
+        return ImageFont.truetype(str(FONT_PATH), size)
     return ImageFont.load_default(size)
 
 
@@ -161,9 +171,9 @@ def sidebar(ui, datasets, active_id):
 
 def tabs_bar(ui, active_index, model, models):
     x, y = 320, 112
-    tab_labels = ["Vue d'ensemble", "Activité neuronale", "Anomalies & points bloquants", "Comparaison de modèles"]
-    widths = [130, 160, 220, 200]
-    ui.panel(x, y, sum(widths) + 24, 42, radius=10)
+    tab_labels = ["Vue d'ensemble", "Activité", "Anomalies", "Comparaison", "Sonde neuronale", "Évals"]
+    widths = [122, 92, 100, 112, 138, 72]
+    ui.panel(x, y, sum(widths) + 28, 42, radius=10)
     cx = x + 8
     for index, (label, w) in enumerate(zip(tab_labels, widths)):
         if index == active_index:
@@ -172,7 +182,13 @@ def tabs_bar(ui, active_index, model, models):
         else:
             ui.text(cx + w / 2, y + 21, label, 12, MUTED, anchor="mm")
         cx += w + 8
-    select_x = W - PAD - 260
+    button_w, button_h = 64, 30
+    pdf_x = W - PAD - button_w
+    csv_x = pdf_x - button_w - 8
+    for bx, label in ((csv_x, "CSV"), (pdf_x, "PDF")):
+        ui.draw.rounded_rectangle([bx, y + 6, bx + button_w, y + 6 + button_h], radius=8, fill=hex_rgb(PANEL), outline=hex_rgb(BORDER))
+        ui.text(bx + button_w / 2, y + 6 + button_h / 2, label, 11, TEXT, anchor="mm")
+    select_x = csv_x - 280
     ui.text(select_x, y + 21, "Modèle :", 13, MUTED, anchor="lm")
     ui.panel(select_x + 70, y + 4, 190, 34, radius=8)
     ui.text(select_x + 84, y + 21, model, 12, anchor="lm")
@@ -269,12 +285,12 @@ def render_overview(data, datasets, ds_id, model):
             (
                 "Dérive max entre runs",
                 f"{a['drift']['max_js']:.3f}",
-                f"run {a['drift']['from_run']} → run {a['drift']['to_run']} (JS)"
+                f"run {a['drift']['from_run']} vers run {a['drift']['to_run']} (JS)"
                 if a["drift"]["to_run"]
                 else "aucune dérive mesurable",
                 WARN if a["drift"]["max_js"] > 0.2 else None,
             ),
-            ("Longueur moyenne", f"{a['length']['mean']:.1f}", f"σ = {a['length']['std']:.1f}", None),
+            ("Longueur moyenne", f"{a['length']['mean']:.1f}", f"ecart-type = {a['length']['std']:.1f}", None),
             ("Latence moyenne", f"{a['latency_ms']['mean']:.0f} ms", f"p95 = {a['latency_ms']['p95']:.0f} ms", None),
         ],
         top,
@@ -444,7 +460,7 @@ def render_compare(data, datasets, ds_id, model):
     ui.text(338, top + 16, "Comparaison de modèles", 14)
     ui.panel(1150, top + 12, 120, 30, radius=8)
     ui.text(1164, top + 27, comparison["model_a"], 11, anchor="lm")
-    ui.text(1282, top + 27, "→", 12, MUTED, anchor="lm")
+    ui.text(1282, top + 27, "vers", 12, MUTED, anchor="lm")
     ui.panel(1300, top + 12, 100, 30, radius=8)
     ui.text(1314, top + 27, comparison["model_b"], 11, anchor="lm")
 
@@ -458,7 +474,7 @@ def render_compare(data, datasets, ds_id, model):
         MUTED,
     )
 
-    headers = ["Métrique", comparison["model_a"], comparison["model_b"], "Δ", "Δ %", "Statut"]
+    headers = ["Métrique", comparison["model_a"], comparison["model_b"], "Écart", "Écart %", "Statut"]
     col_x = [338, 640, 830, 1020, 1110, 1230]
     row_y = top + 100
     for label, cx in zip(headers, col_x):
@@ -474,6 +490,214 @@ def render_compare(data, datasets, ds_id, model):
         pct = row["delta_pct"]
         ui.text(col_x[4], ry, f"{'+' if pct and pct > 0 else ''}{pct} %" if pct is not None else "—", 12)
         ui.badge(col_x[5], ry - 4, STATUS_LABELS[row["status"]], STATUS_COLORS[row["status"]])
+    return ui
+
+
+def render_probe(probe):
+    status = probe["status"]
+    activation = probe["activation"]
+    attention = probe["attention"]
+    attribution = probe["attribution"]
+    patching = probe["patching"]
+    generate = probe["generate"]
+    weights = probe["weights"]
+    ui = Ui(W, 1360)
+    header(ui, "sample_runs.jsonl", 240, 3)
+    sidebar(ui, probe["datasets"], probe["ds_id"])
+    tabs_bar(ui, 4, "stable-v1", ["stable-v1"])
+
+    top = 176
+    ui.panel(320, top, 540, 140)
+    ui.text(338, top + 16, "Modèle chargé", 14)
+    ui.badge(338, top + 42, status["backend"].upper(), ACCENT)
+    ui.badge(338 + 70, top + 42, "MODIFIABLE", GOOD)
+    ui.text(338, top + 84, status["model_name"], 13)
+    ui.text(338, top + 106, f"{status['n_layers']} couches · device {status['device']}", 11, MUTED)
+
+    ui.panel(876, top, 544, 140)
+    ui.text(894, top + 16, "Génération instrumentée", 14)
+    ui.panel(894, top + 40, 380, 30, radius=8)
+    ui.text(908, top + 55, generate["prompt"], 12, anchor="lm")
+    ui.draw.rounded_rectangle([1284, top + 40, 1400, top + 70], radius=8, fill=hex_rgb(ACCENT))
+    ui.text(1342, top + 55, "Générer", 12, "#ffffff", anchor="mm")
+    ui.text(894, top + 90, "".join(generate["tokens"]), 12)
+    ui.badge(894, top + 108, f"perplexité {generate['perplexity']}", ACCENT)
+
+    act_top = top + 160
+    ui.panel(320, act_top, 1100, 200)
+    ui.text(338, act_top + 16, "Analyse d'activation par couche", 14)
+    ui.text(338, act_top + 40, "Ratio de neurones morts et activité maximale, pour un lot de textes de test.", 11, MUTED)
+    for index, layer in enumerate(activation["layers"]):
+        ry = act_top + 70 + index * 32
+        ui.text(338, ry, layer["layer"], 12)
+        bar_x, bar_w = 470, 340
+        ui.draw.rounded_rectangle([bar_x, ry + 2, bar_x + bar_w, ry + 14], radius=6, fill=blend(PANEL, ACCENT, 0.2))
+        fill_w = int(bar_w * min(layer["std"] * 2, 1.0))
+        ui.draw.rounded_rectangle([bar_x, ry + 2, bar_x + fill_w, ry + 14], radius=6, fill=hex_rgb(ACCENT))
+        dead = layer["dead_neuron_ratio"]
+        dead_color = GOOD if dead < 0.2 else (WARN if dead < 0.5 else DANGER)
+        ui.badge(830, ry - 4, f"neurones morts {dead:.0%}", dead_color)
+        tops = " ".join(f"n{n['index']}" for n in layer["top_neurons"][:4])
+        ui.text(1050, ry, f"top: {tops}", 11, MUTED)
+
+    attn_top = act_top + 220
+    ui.panel(320, attn_top, 1100, 250)
+    ui.text(338, attn_top + 16, "Entropie d'attention par couche × tête", 14)
+    ui.text(338, attn_top + 40, "Bleu = tête focalisée · rouge = tête diffuse (attention dispersée).", 11, MUTED)
+    matrix = attention["head_matrix"]
+    max_entropy = attention["max_entropy"] or 1
+    cell_w, cell_h = 120, 32
+    grid_x, grid_y = 380, attn_top + 70
+    for row_index, row in enumerate(matrix):
+        ui.text(grid_x - 10, grid_y + row_index * 36 + 14, f"L{row_index}", 11, MUTED, anchor="rm")
+        for col_index, value in enumerate(row):
+            intensity = value / max_entropy
+            color = blend("#2864c8", "#ff3c28", intensity)
+            ui.draw.rounded_rectangle(
+                [grid_x + col_index * (cell_w + 6), grid_y + row_index * 36,
+                 grid_x + col_index * (cell_w + 6) + cell_w, grid_y + row_index * 36 + cell_h],
+                radius=4, fill=color,
+            )
+            ui.text(grid_x + col_index * (cell_w + 6) + cell_w / 2, grid_y + row_index * 36 + 16,
+                    f"{value:.2f}", 10, "#ffffff", anchor="mm")
+    ui.text(grid_x + 4 * (cell_w + 6) + 24, grid_y + 10, "Têtes les plus diffuses :", 12)
+    for index, head in enumerate(attention["top_heads"][:3]):
+        ry = grid_y + 36 + index * 26
+        ui.badge(grid_x + 4 * (cell_w + 6) + 24, ry, f"L{head['layer']}·T{head['head']}", DANGER)
+        ui.text(grid_x + 4 * (cell_w + 6) + 100, ry + 4, f"entropie {head['entropy']:.2f}", 11, MUTED)
+
+    attr_top = attn_top + 270
+    ui.panel(320, attr_top, 540, 220)
+    ui.text(338, attr_top + 16, f"Attribution des tokens ({attribution['method']})", 14)
+    ui.text(338, attr_top + 40, f"Cible : « {attribution['target_token']} » — contribution de chaque token", 11, MUTED)
+    chip_x, chip_y = 338, attr_top + 70
+    max_abs = max((abs(t["score"]) for t in attribution["tokens"]), default=1) or 1
+    for token in attribution["tokens"]:
+        intensity = abs(token["score"]) / max_abs
+        if token["score"] >= 0:
+            color = blend(PANEL, GOOD, 0.2 + 0.6 * intensity)
+        else:
+            color = blend(PANEL, DANGER, 0.2 + 0.6 * intensity)
+        chip_w = ui.text_width(token["token"], 12) + 20
+        ui.draw.rounded_rectangle([chip_x, chip_y, chip_x + chip_w, chip_y + 30], radius=6, fill=color)
+        ui.text(chip_x + chip_w / 2, chip_y + 15, token["token"], 12, "#ffffff", anchor="mm")
+        chip_x += chip_w + 6
+        if chip_x > 800:
+            chip_x, chip_y = 338, chip_y + 38
+    ui.badge(338, attr_top + 180, "vert = pousse vers la cible", GOOD)
+    ui.badge(338 + 200, attr_top + 180, "rouge = s'oppose", DANGER)
+
+    ui.panel(876, attr_top, 544, 220)
+    ui.text(894, attr_top + 16, "Activation patching (nnsight)", 14)
+    ui.text(894, attr_top + 40, f"Restoration par couche — KL baseline {patching['baseline_kl']:.2f}", 11, MUTED)
+    for index, (restoration, layer_kl) in enumerate(zip(patching["layer_restoration"], patching["layer_kl"])):
+        ry = attr_top + 70 + index * 30
+        critical = index == patching["critical_layer"]
+        color = DANGER if critical else ACCENT
+        ui.text(894, ry, f"couche {index}", 12)
+        bar_x, bar_w = 990, 330
+        ui.draw.rounded_rectangle([bar_x, ry + 2, bar_x + bar_w, ry + 16], radius=7, fill=blend(PANEL, color, 0.25))
+        fill_w = int(bar_w * restoration / 100)
+        ui.draw.rounded_rectangle([bar_x, ry + 2, bar_x + fill_w, ry + 16], radius=7, fill=hex_rgb(color))
+        ui.text(bar_x + bar_w + 10, ry + 2, f"{restoration:.0f} %", 11, color if critical else TEXT)
+    ui.text(894, attr_top + 196, f"Couche critique : #{patching['critical_layer']} (en rouge)", 11, MUTED)
+
+    weight_top = attr_top + 240
+    ui.panel(320, weight_top, 1100, 110)
+    ui.text(338, weight_top + 16, f"Poids — {weights['layer']}  (shape {weights['shape'][0]} × {weights['shape'][1]})", 14)
+    ui.badge(900, weight_top + 14, f"std {weights['std']:.4f}", ACCENT)
+    ui.badge(1010, weight_top + 14, f"min {weights['min']:.4f}", MUTED)
+    ui.badge(1110, weight_top + 14, f"max {weights['max']:.4f}", MUTED)
+    counts = weights["histogram"]["counts"]
+    edges = weights["histogram"]["edges"]
+    max_count = max(counts) or 1
+    hist_x, hist_y, hist_h, hist_w = 338, weight_top + 50, 44, 1044
+    bin_w = hist_w / len(counts)
+    for index, count in enumerate(counts):
+        bar_h = count / max_count * hist_h
+        ui.draw.rectangle(
+            [hist_x + index * bin_w, hist_y + hist_h - bar_h, hist_x + (index + 1) * bin_w - 2, hist_y + hist_h],
+            fill=hex_rgb(ACCENT),
+        )
+    ui.text(hist_x, hist_y + 8, f"{edges[0]:.3f}", 9, MUTED)
+    ui.text(hist_x + hist_w, hist_y + 8, f"{edges[-1]:.3f}", 9, MUTED, anchor="ra")
+    return ui
+
+
+def render_evals(evals):
+    benchmark = evals["benchmark"]
+    quality = evals["quality"]
+    langfuse = evals["langfuse"]
+    ui = Ui(W, 760)
+    header(ui, "sample_runs.jsonl", 240, 3)
+    sidebar(ui, evals["datasets"], evals["ds_id"])
+    tabs_bar(ui, 5, "stable-v1", ["stable-v1"])
+
+    top = 176
+    ui.panel(320, top, 540, 300)
+    ui.text(338, top + 16, "Benchmark standardisé (lm-evaluation-harness)", 14)
+    chip_x, chip_y = 338, top + 46
+    for task, active in (("lambada_openai", True), ("hellaswag", False), ("arc_easy", False)):
+        chip_w = ui.text_width(task, 11) + 20
+        fill = ACCENT if active else PANEL
+        outline = ACCENT if active else BORDER
+        ui.draw.rounded_rectangle([chip_x, chip_y, chip_x + chip_w, chip_y + 26], radius=13,
+                                  fill=blend(PANEL, ACCENT, 0.2) if active else hex_rgb(PANEL), outline=hex_rgb(outline))
+        ui.text(chip_x + chip_w / 2, chip_y + 13, task, 11, "#ffffff" if active else MUTED, anchor="mm")
+        chip_x += chip_w + 6
+    ui.text(338, top + 90, f"Moteur : {benchmark['engine']} · limite {benchmark['limit']} exemples / tâche", 11, MUTED)
+    headers = ["Tâche", "Métrique", "Valeur", "Erreur std"]
+    col_x = [338, 520, 660, 750]
+    row_y = top + 120
+    for label, cx in zip(headers, col_x):
+        ui.text(cx, row_y, label, 11, MUTED)
+    ui.draw.line([338, row_y + 20, 840, row_y + 20], fill=hex_rgb(BORDER))
+    index = 0
+    for task, metrics in benchmark["tasks"].items():
+        for metric, value in metrics.items():
+            ry = row_y + 32 + index * 34
+            ui.text(col_x[0], ry, task, 12)
+            ui.text(col_x[1], ry, metric, 12)
+            ui.text(col_x[2], ry, f"{value:.4f}", 12)
+            stderr = metrics.get(f"{metric}_stderr")
+            ui.text(col_x[3], ry, f"± {stderr:.4f}" if stderr is not None else "—", 12)
+            index += 1
+
+    ui.panel(876, top, 544, 300)
+    ui.text(894, top + 16, "Qualité des sorties (DeepEval + heuristiques)", 14)
+    ui.panel(894, top + 42, 360, 30, radius=8)
+    ui.ellipsis(908, top + 57, 330, quality["texts"][0]["text"], 12)
+    ui.draw.rounded_rectangle([1264, top + 42, 1400, top + 72], radius=8, fill=hex_rgb(ACCENT))
+    ui.text(1332, top + 57, "Évaluer", 12, "#ffffff", anchor="mm")
+    ui.badge(894, top + 84, "juge : local (Qwen 1.5B)", ACCENT)
+    headers = ["Texte", "PPL", "Répét.", "Score"]
+    col_x = [894, 1240, 1300, 1360]
+    row_y = top + 120
+    for label, cx in zip(headers, col_x):
+        ui.text(cx, row_y, label, 11, MUTED)
+    ui.draw.line([894, row_y + 20, 1400, row_y + 20], fill=hex_rgb(BORDER))
+    scores = [0.8, 0.4, 0.6]
+    for index, item in enumerate(quality["texts"][:3]):
+        ry = row_y + 32 + index * 34
+        ui.ellipsis(col_x[0], ry, 320, item["text"], 12)
+        ui.text(col_x[1], ry, f"{item['perplexity']:.1f}", 12)
+        ui.text(col_x[2], ry, f"{item['repetition_ratio']:.2f}", 12)
+        score = scores[index % len(scores)]
+        score_color = GOOD if score >= 0.5 else DANGER
+        ui.badge(col_x[3], ry - 4, f"{score:.1f}", score_color)
+    aggregate = quality["aggregate"]
+    ui.badge(894, top + 264, f"PPL moy. {aggregate['perplexity']:.1f}", ACCENT)
+    ui.badge(1020, top + 264, f"répétition {aggregate['repetition_ratio']:.2f}", WARN)
+    ui.badge(1180, top + 264, f"diversité {aggregate['distinct_ratio']:.2f}", GOOD)
+
+    lgf_top = top + 320
+    ui.panel(320, lgf_top, 1100, 110)
+    ui.text(338, lgf_top + 16, "Export des traces vers Langfuse", 14)
+    ui.badge(338, lgf_top + 44, langfuse["mode"].upper(), ACCENT)
+    ui.text(430, lgf_top + 55, f"{langfuse['n_traces']} traces exportées", 12)
+    ui.text(338, lgf_top + 78, langfuse["path"], 11, MUTED)
+    ui.panel(1150, lgf_top + 14, 250, 34, radius=8)
+    ui.text(1164, lgf_top + 31, "Pousser vers Langfuse", 11, MUTED, anchor="lm")
     return ui
 
 
@@ -512,10 +736,45 @@ def main():
         ),
     }
 
+    def post(path, payload):
+        return httpx.post(f"{api_base}/api{path}", timeout=120, json=payload).json()
+
+    post("/probe/load", {"model_name": "mock-transformer", "device": "cpu"})
+    activation = post("/probe/analyze-texts", {"texts": ["Paris est la capitale de la France", "Le chat dort sur le tapis au soleil", "Explique la photosynthese en une phrase"]})
+    attention = post("/probe/attention", {"texts": ["Paris est la capitale de la France"]})
+    attribution = post("/probe/attribution", {"text": "Paris est la capitale de la France", "method": "integrated-gradients"})
+    patching = post("/probe/patching", {"clean_text": "Paris est la capitale de la France", "corrupted_text": "Paris est la capitale de l'Italie"})
+    generate = post("/probe/generate", {"prompt": "Paris est la", "max_new_tokens": 6})
+    weights = httpx.get(f"{api_base}/api/probe/weights/layer_0.mlp", timeout=30).json()
+    probe_data = {
+        "datasets": datasets,
+        "ds_id": ds_id,
+        "status": httpx.get(f"{api_base}/api/probe/status", timeout=30).json(),
+        "activation": activation,
+        "attention": attention,
+        "attribution": attribution,
+        "patching": patching,
+        "generate": generate,
+        "weights": weights,
+    }
+
+    benchmark = post("/evals/benchmark", {"model_name": model, "tasks": ["lambada_openai"], "limit": 5})
+    quality = post("/evals/quality", {"texts": ["Paris est la capitale de la France, un pays d'Europe occidentale.", "le le le le le le le le le le le le le le le"]})
+    langfuse = post("/evals/langfuse", {"dataset_id": ds_id, "model": model})
+    evals_data = {
+        "datasets": datasets,
+        "ds_id": ds_id,
+        "benchmark": benchmark,
+        "quality": quality,
+        "langfuse": langfuse,
+    }
+
     render_overview(data, datasets, ds_id, model).save(output_dir / "01-overview.png")
     render_heatmap(data, datasets, ds_id, model).save(output_dir / "02-heatmap.png")
     render_anomalies(data, datasets, ds_id, model).save(output_dir / "03-anomalies.png")
     render_compare(data, datasets, ds_id, model).save(output_dir / "04-compare.png")
+    render_probe(probe_data).save(output_dir / "05-probe.png")
+    render_evals(evals_data).save(output_dir / "06-evals.png")
     httpx.delete(f"{api_base}/api/datasets/{ds_id}", timeout=30)
 
 
