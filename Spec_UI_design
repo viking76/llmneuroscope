@@ -1,0 +1,153 @@
+# Design Spec — LLM Neuroscope (MVP)
+
+**Version :** 1.0  
+**Date :** 28 Novembre 2026  
+**Auteur :** Équipe Design / Produit  
+**Statut :** Prêt pour le développement
+
+---
+
+## 1. Contexte & Objectifs
+**Produit :** LLM Neuroscope  
+**Description :** Outil de diagnostic et d'analyse pour les Modèles de Langage (LLM), permettant de détecter les problèmes (hallucinations, boucles de répétition, dégénérescence) via l'analyse de l'activité neuronale et des logs d'exécution.
+**Cible :** Chercheurs, ingénieurs ML, data scientists.
+**Objectif MVP :** Fournir un tableau de bord unifié pour importer des logs, visualiser la santé du modèle, détecter les anomalies, comparer des versions et sonder les couches internes.
+
+---
+
+## 2. Design System (Tokens & Fondations)
+
+### 2.1 Couleurs (Thème Sombre)
+| Token | Valeur Hex | Usage |
+|---|---|---|
+| `bg-global` | `#0B0E14` | Fond principal de l'application |
+| `bg-surface` | `#151A22` | Fond des cartes (Cards) et panneaux |
+| `border-subtle` | `#2A303C` | Bordures des cartes, séparateurs de tableaux |
+| `accent-primary` | `#4B7BFF` | Boutons primaires, onglets actifs, graphiques |
+| `text-primary` | `#FFFFFF` | Titres, chiffres clés (KPI) |
+| `text-secondary` | `#A0AABF` | Corps de texte, labels *(Note : vérifier le contraste 4.5:1)* |
+| `text-disabled` | `#5C677D` | Texte désactivé, placeholders |
+| `semantic-success` | `#2E7D32` (bg) / `#81C784` (txt) | Badges "Amélioration", "Stable" |
+| `semantic-danger` | `#C62828` (bg) / `#E57373` (txt) | Badges "HAUTE", "Anomalie" |
+| `heatmap-gradient` | `#4B7BFF` -> `#FF4C4C` | Dégradé Bleu (déterministe) vers Rouge (aléatoire) |
+
+### 2.2 Typographie
+*   **Police principale :** Inter ou Roboto (Sans-serif).
+*   **H1 (Titre app) :** 24px, Bold (700).
+*   **H2 (Titres de sections/cards) :** 16px, Semi-bold (600).
+*   **Body / Tableaux :** 14px, Regular (400).
+*   **Métadonnées / Légendes :** 12px, Regular (400).
+*   **KPI (Chiffres clés) :** 28px, Bold (700).
+
+### 2.3 Espacements & Grille
+*   **Système :** Base 8px (8, 16, 24, 32).
+*   **Rayon des bordures (Cards) :** `border-radius: 8px`.
+*   **Padding interne (Cards) :** `16px` à `24px`.
+*   **Densité des tableaux :** Padding vertical de `8px` par ligne pour afficher un maximum de données.
+
+---
+
+## 3. Architecture de l'Information & Layout Global
+
+*   **Sidebar (Gauche, fixe) :**
+    *   Zone d'import (Drag & Drop + bouton).
+    *   Liste des datasets chargés (affichage du nom + métadonnées).
+*   **Header (Haut, fixe) :**
+    *   Titre + sous-titre.
+    *   Indicateur du dataset actif (Badge à droite) + nb d'enregistrements/runs.
+    *   Navigation secondaire (Tabs) : Vue d'ensemble, Activité, Anomalies, Comparaison, Sonde neuronale, Évals.
+    *   Sélecteur de modèle (Dropdown).
+    *   Boutons d'export (CSV, PDF).
+*   **Main Content (Zone centrale) :** Scrollable, contient les vues spécifiques.
+
+---
+
+## 4. Spécifications Écran par Écran
+
+### 4.1 Onglet : Vue d'ensemble
+*   **Layout :** Grille de 6 cartes KPI (2 lignes x 3 colonnes) + 2 graphiques côte à côte.
+*   **Composants :**
+    *   **KPI Cards :** Titre, Valeur principale, sous-texte explicatif (ex: "plus bas = plus confiant"). *Données : Perplexité, Entropie des tokens, Taux de dégénérescence, Dérive max entre runs, Longueur moyenne, Latence moyenne.*
+    *   **Graphique 1 (Gauche) :** Bar chart (Entropie par run). Axe X: Run 1, 2, 3. Valeurs affichées au-dessus des barres.
+    *   **Graphique 2 (Droite) :** Line chart double (Log-prob moyen & entropie par position). Légende cliquable en bas (boutons toggle).
+*   **Interactions :** Survol des barres/lignes pour afficher des tooltips avec les valeurs exactes.
+
+### 4.2 Onglet : Activité
+*   **Layout :** Deux sections empilées.
+*   **Section 1 (Heatmap d'activité) :**
+    *   Titre explicatif.
+    *   Grille : Y = Runs (Run 1, 2, 3), X = Positions (0 à 56+).
+    *   Cellules colorées selon le gradient d'entropie.
+    *   Légende horizontale en bas (0 à 3.12).
+*   **Section 2 (Profil d'entropie) :**
+    *   Bar chart (Histogramme de distribution) par position, tous runs confondus.
+
+### 4.3 Onglet : Anomalies
+*   **Layout :** 4 KPI cards en haut (1 ligne) + 2 tableaux.
+*   **KPI Cards :** Anomalies détectées, Boucle de répétition, Pic de latence, Points bloquants.
+*   **Tableau 1 (Journal des anomalies) :**
+    *   Colonnes : Sévérité (Badge rouge "HAUTE"), Type, Prompt, Run, Valeur, Z-score.
+    *   *Recommandation UX :* Ajouter une action "Voir le prompt" (icône œil) pour faciliter le débogage.
+*   **Tableau 2 (Points bloquants par position) :**
+    *   Colonnes : Position, Type, Valeur, Z-score, Sévérité.
+
+### 4.4 Onglet : Comparaison
+*   **Layout :** En-tête de comparaison + Tableau de données.
+*   **En-tête :**
+    *   Sélecteurs des deux modèles (ex: degraded-v2 vs stable-v1).
+    *   Badge global (ex: "AMÉLIORATION").
+    *   Métrique de divergence (ex: Divergence de distribution (JS) : 0.0701).
+*   **Tableau de comparaison :**
+    *   Colonnes : Métrique, Modèle A, Modèle B, Écart, Écart %, Statut.
+    *   Le Statut utilise des badges de couleur (Vert = amélioration, Gris = stable).
+    *   *Interaction :* Tri par colonne.
+
+### 4.5 Onglet : Sonde neuronale (Neuron Probe)
+*   **Layout :** Grille complexe et dense. **Recommandation :** Utiliser un système d'accordéon (collapsible) ou de sous-onglets par section (Génération, Activation, Patching) pour éviter la surcharge cognitive.
+*   **Section 1 (Haut) :** Génération instrumentée (Input, bouton "Générer", Output, Perplexité).
+*   **Section 2 (Analyse d'activation par couche) :** Liste des couches (layer_0.mlp à layer_3.mlp). Barres de progression (Ratio de neurones morts), badges, top tokens.
+*   **Section 3 (Entropie d'attention) :** Heatmap par couche x tête. Info-bulles au survol (ex: "Tête L1 T6 entropie 2.45"). Indication des têtes "diffuses" en rouge.
+*   **Section 4 (Attribution des tokens) :** Affichage du prompt avec des tags colorés (Vert = pousse vers la cible, Rouge = s'oppose).
+*   **Section 5 (Activation patching) :** Barres de progression indiquant la restauration par couche. Mise en évidence de la "Couche critique".
+*   **Section 6 (Poids) :** Bar chart des poids pour la première couche.
+
+### 4.6 Onglet : Évals
+*   **Layout :** 2 colonnes en haut, 1 section en bas.
+*   **Gauche (Benchmark standardisé) :**
+    *   Boutons de sélection (lambada_openai, hellaswag, etc.).
+    *   Tableau : Tâche, Métrique, Valeur, Erreur std.
+*   **Droite (Qualité des sorties) :**
+    *   Zone de texte + Bouton "Évaluer".
+    *   Tableau des résultats : Texte, PPL, Répét, Score (Badge de couleur).
+*   **Bas (Export) :** Bouton "Pousser vers Langfuse" + Chemin du fichier local.
+
+---
+
+## 5. États & Interactions (Comportement)
+
+*   **États des composants :**
+    *   **Hover :** Légère augmentation de la luminosité (`opacity: 0.9`) sur les cartes et les lignes de tableau.
+    *   **Active (Focus) :** Bordure bleue (`#4B7BFF`) sur les inputs et boutons.
+    *   **Loading :** Utiliser des *Skeleton screens* (formes grises animées) pour les graphiques et tableaux pendant le chargement des données.
+    *   **Empty State (Vide) :** Si aucun dataset n'est chargé, afficher un message centré dans la zone principale : *"Aucune donnée. Importez un fichier CSV ou JSONL via le panneau de gauche pour commencer."*
+    *   **Error State (Erreur) :** Si le fichier importé est corrompu, afficher une bannière d'erreur rouge en haut du panneau d'import.
+*   **Accessibilité (a11y) :**
+    *   **Contraste :** S'assurer que le texte gris (`text-secondary`) respecte le ratio 4.5:1 sur le fond sombre.
+    *   **Graphiques :** Ne pas se fier uniquement à la couleur. Ajouter des `aria-labels` sur les cellules de la heatmap ou des tooltips visibles au clavier.
+    *   **Clavier :** Tous les onglets, boutons et menus déroulants doivent être focusables via `Tab`.
+*   **Responsive :**
+    *   **Desktop (>=1280px) :** Layout tel que défini.
+    *   **Tablette (768px - 1279px) :** Sidebar rétractable. Les grilles de KPI passent de 3 colonnes à 2. Les graphiques s'empilent verticalement.
+    *   **Mobile (<768px) :** Sidebar en mode tiroir (Drawer). Les tableaux deviennent scrollables horizontalement. Les heatmaps sont simplifiées ou affichées sous forme de liste.
+
+---
+
+## 6. Handoff & Livrables
+*   **Assets Figma :** Composants (KPI Card, Data Table, Charts, Badges).
+*   **Données de test :** Fichier `sample_runs.jsonl` (fourni dans les captures).
+*   **Critères d'acceptation (Dev) :**
+    *   [ ] Le layout global est responsive.
+    *   [ ] Les états de chargement et d'erreur sont implémentés.
+    *   [ ] Les tooltips sont fonctionnels sur tous les graphiques.
+    *   [ ] Les contrastes respectent les normes WCAG AA.
+ 
